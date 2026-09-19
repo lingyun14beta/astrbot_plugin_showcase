@@ -1,0 +1,43 @@
+# AstrBot 插件元数据。AstrBot 依赖本文件识别插件（缺失或字段不全时插件无法加载）。
+# 字段语义参考：https://docs.astrbot.app/dev/star/plugin-new.html
+name: astrbot_plugin_showcase # 插件唯一识别名；与 author 一起组成 plugin_id，也是 KV 存储的命名空间
+display_name: AstrBot Showcase # WebUI / 插件市场展示名；可被 .astrbot-plugin/i18n 下的 metadata.display_name 覆盖
+desc: AstrBot 插件能力全景示例：配置 Schema、事件钩子、国际化、WebUI Page、LLM 工具与持久化存储。
+short_desc: 一个插件看懂 AstrBot 插件能做什么 # 插件市场卡片用的一句话简介；缺省时回退显示 desc
+version: v1.0.0 # 版本号，格式 v1.1.1 或 v1.1
+author: lingyun14beta
+repo: https://github.com/lingyun14beta/astrbot_plugin_showcase # 插件仓库地址；缺失时 AstrBot 无法检查更新
+astrbot_version: ">=4.27.3" # PEP 440 版本范围；当前 AstrBot 不满足时会被阻止加载
+# 下限依据（用 git 历史逐个 API 反查，括号内为该 API 最早出现的版本）：
+#   【决定下限】context.activate_llm_tool_async —— 4.27.3（/showcase tools on|off 的运行时开关）
+#   类式工具与工具循环：context.add_llm_tools —— 4.5.1；context.tool_loop_agent —— 4.5.7
+#   多轮会话 session_waiter —— 3.4.36；子 agent register_agent —— 4.0.0
+#   其它：event.send_typing —— 4.16.0；event.react —— 4.3.0；sp.session_* —— 4.0.0
+#   Star.html_render —— 4.18.2；PlatformAdapterType.ALL —— 4.23.5；on_agent_done —— 4.23.2
+#   .astrbot-plugin/i18n 与 metadata.short_desc —— 4.24.1
+#   插件专属 logger（self.logger）需要 4.26.8，本插件改用 astrbot.api.logger，不受其限制。
+# 注：这只是 core 侧下限；配置页能否渲染出滑条 / 勾选框 / 模板列表取决于 WebUI 资产版本，
+#     对照 README 的「版本要求：core 与 WebUI 是两条线」一节。
+
+# 声明支持的平台适配器（取值必须是 ADAPTER_NAME_2_TYPE 的 key，见 astrbot/core/star/filter/platform_adapter_type.py）。
+# 本插件不依赖任何平台特有 API，因此声明支持当前全部适配器。
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - qq_official_webhook
+  - telegram
+  - wecom
+  - wecom_ai_bot
+  - lark
+  - dingtalk
+  - discord
+  - slack
+  - kook
+  - vocechat
+  - weixin_official_account
+  - weixin_oc
+  - satori
+  - misskey
+  - line
+  - matrix
+  - mattermost

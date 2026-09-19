@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Showcase</title>
+    <!-- 相对路径引用：AstrBot 会自动重写成带 asset_token 的地址，绝对路径不会。 -->
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="head">
+        <h1 id="heading">AstrBot 插件能力展示</h1>
+        <p id="subtitle" class="muted"></p>
+      </header>
+
+      <section class="card">
+        <h2 id="context-title">运行上下文</h2>
+        <dl class="kv">
+          <div><dt id="l-plugin">插件名</dt><dd id="v-plugin">-</dd></div>
+          <div><dt id="l-display">展示名</dt><dd id="v-display">-</dd></div>
+          <div><dt id="l-page">页面名</dt><dd id="v-page">-</dd></div>
+          <div><dt id="l-locale">当前语言</dt><dd id="v-locale">-</dd></div>
+          <div><dt id="l-theme">主题</dt><dd id="v-theme">-</dd></div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2 id="actions-title">Bridge 调用演示</h2>
+        <div class="actions">
+          <button type="button" id="btn-ping">Ping</button>
+          <button type="button" id="btn-state">-</button>
+          <button type="button" id="btn-commands">-</button>
+          <button type="button" id="btn-kv">-</button>
+        </div>
+        <p class="muted small" id="bridge-note"></p>
+      </section>
+
+      <section class="card">
+        <h2 id="output-title">返回结果</h2>
+        <pre id="output" class="output"></pre>
+      </section>
+    </main>
+
+    <!-- 显式声明 bridge SDK：AstrBot 会把这一行重写成带 token 的地址，
+         并在没有声明时自动注入一份，因此不要重复引入。 -->
+    <script src="/api/plugin/page/bridge-sdk.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

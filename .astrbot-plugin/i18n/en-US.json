@@ -1,0 +1,168 @@
+{
+  "metadata": {
+    "display_name": "AstrBot Showcase",
+    "short_desc": "See what an AstrBot plugin can do, in one plugin.",
+    "desc": "A full-surface AstrBot plugin example: config schema, event hooks, i18n, WebUI Page, LLM tools and persistent storage."
+  },
+  "config": {
+    "enabled": {
+      "description": "Enable plugin",
+      "hint": "When disabled, every command and message listener of this plugin stops responding."
+    },
+    "greeting": {
+      "description": "Greeting",
+      "hint": "Replied verbatim by /showcase hello."
+    },
+    "log_level": {
+      "description": "Log level",
+      "hint": "Applied to this plugin's own logger at load time; per-plugin loggers exist from AstrBot 4.26.8, on older versions the level is left untouched so the whole app is unaffected.",
+      "labels": [
+        "Debug",
+        "Info",
+        "Warning",
+        "Error"
+      ]
+    },
+    "cooldown_seconds": {
+      "description": "Command cooldown (seconds)",
+      "hint": "Minimum interval between two /showcase ping calls in the same session."
+    },
+    "similarity_threshold": {
+      "description": "Fuzzy match threshold",
+      "hint": "0-1. A keyword triggers once this share of it matches contiguously inside the message (typos tolerated); demonstrates custom_filter."
+    },
+    "enabled_features": {
+      "description": "Extension points under demo",
+      "hint": "Per-item switches: hooks = the 14 event hooks log; message = the rule listener; llm_tool = the LLM tool logs; web_api = the plugin page backend; storage = KV persistence; agent = the class-based LLM tool and the tool loop; push = the proactive push background task. Unchecked items are skipped.",
+      "labels": [
+        "Event hooks",
+        "LLM tools",
+        "Web API",
+        "Storage",
+        "Message components",
+        "Sub-agent",
+        "Proactive push"
+      ]
+    },
+    "keywords": {
+      "description": "Keywords",
+      "hint": "Free-form list: matching messages trigger the keyword rule."
+    },
+    "chat_provider_id": {
+      "description": "Demo model",
+      "hint": "Used by /showcase ask, /showcase agent and the LLM tools. Leave empty to get a 'not configured' notice."
+    },
+    "api_token": {
+      "description": "Demo secret",
+      "hint": "Demonstrates the secret field: the input is masked, but the value is still stored in plain text. Never put real credentials here. Requires WebUI >= 4.28.0, otherwise it renders as a plain text box."
+    },
+    "aliases": {
+      "description": "Custom aliases",
+      "hint": "Key/value pairs: /showcase say <alias> replies with the matching value. The preset editor requires WebUI >= 4.10.4.",
+      "template_schema": {
+        "hello": {
+          "name": "Example alias",
+          "description": "Reply text for an alias",
+          "hint": "The key is the alias, the value is the reply text."
+        },
+        "weight": {
+          "name": "Example weight",
+          "description": "Numeric config item example"
+        }
+      }
+    },
+    "manual_files": {
+      "description": "Demo files",
+      "hint": "Upload a file, then /showcase notes reads its first line; demonstrates the file type and the plugin data directory. The file_types filter requires WebUI >= 4.13.0."
+    },
+    "advanced": {
+      "description": "Advanced settings",
+      "max_lines": {
+        "description": "Max output lines",
+        "hint": "Caps the output of /showcase config and /showcase notes; the summary is 15 lines, so a smaller value shows the truncation notice."
+      },
+      "strict_mode": {
+        "description": "Strict mode",
+        "hint": "When on, a failed rule match replies with a notice instead of staying silent."
+      },
+      "rule_limit": {
+        "description": "Rule limit",
+        "hint": "Only demonstrates the condition key: shown once strict mode is on. It takes part in no logic; /showcase config echoes its value."
+      },
+      "debug_dump": {
+        "description": "Internal debug dump",
+        "hint": "Demonstrates the invisible key: hidden in the WebUI but still kept in the config file; enabling it adds one more line to /showcase config."
+      }
+    },
+    "rules": {
+      "description": "Message rules",
+      "hint": "Demonstrates template_list: each template has its own fields, chosen when adding an entry. Requires WebUI >= 4.10.4; the collapsed entry title requires >= 4.25.3.",
+      "templates": {
+        "keyword": {
+          "name": "Keyword rule",
+          "hint": "Reply with fixed text when the message contains the keyword.",
+          "pattern": {
+            "description": "Keyword"
+          },
+          "reply": {
+            "description": "Reply text"
+          },
+          "case_sensitive": {
+            "description": "Case sensitive"
+          }
+        },
+        "regex": {
+          "name": "Regex rule",
+          "hint": "Match the message with Python re syntax.",
+          "expression": {
+            "description": "Regular expression"
+          },
+          "reply": {
+            "description": "Reply text"
+          },
+          "priority": {
+            "description": "Priority",
+            "hint": "Higher values match first."
+          }
+        }
+      }
+    },
+    "push_interval_seconds": {
+      "description": "Push interval (seconds)",
+      "hint": "Interval of the proactive push loop, minimum 5 seconds. Takes effect after /showcase push on subscribes the current session."
+    },
+    "session_timeout_seconds": {
+      "description": "Session timeout (seconds)",
+      "hint": "How long each step of /showcase wizard waits; the wizard ends on timeout."
+    },
+    "agent_instruction": {
+      "description": "Sub-agent instruction",
+      "hint": "System prompt used by the tool loop (/showcase agent); empty means the built-in example instruction."
+    }
+  },
+  "pages": {
+    "showcase": {
+      "title": "Capability Showcase",
+      "description": "Demonstrates a plugin Page: iframe isolation, bridge calls, i18n and theme following.",
+      "heading": "AstrBot plugin capabilities",
+      "subtitle": "This page is rendered entirely from static files inside the plugin directory and talks to the plugin backend through window.AstrBotPluginPage.",
+      "context_section": "Runtime context",
+      "plugin_name": "Plugin name",
+      "display_name": "Display name",
+      "page_name": "Page name",
+      "locale": "Locale",
+      "theme": "Theme",
+      "theme_dark": "Dark",
+      "theme_light": "Light",
+      "actions_section": "Bridge call demos",
+      "load_state": "Load runtime state (apiGet)",
+      "load_commands": "Load registered commands (apiGet)",
+      "write_kv": "Write a KV entry (apiPost)",
+      "ping": "Ping the backend (apiGet)",
+      "loading": "Requesting…",
+      "empty": "Use the buttons above to fire a bridge call.",
+      "output": "Response",
+      "bridge_note": "The bridge also offers upload / download / subscribeSSE; see the plugin README."
+    }
+  }
+}

@@ -1,0 +1,132 @@
+/* 插件页样式：跟随 Dashboard 主题。
+   bridge 会把 data-theme 写到 <html> 上，因此只需覆盖同名变量即可适配深色模式。 */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #1f2328;
+  --muted: #656d76;
+  --border: #d8dee4;
+  --accent: #3b82f6;
+  --code-bg: #0f172a;
+  --code-ink: #e2e8f0;
+}
+
+[data-theme="dark"] {
+  --bg: #14171c;
+  --surface: #1c2027;
+  --ink: #e6e8eb;
+  --muted: #9aa4b2;
+  --border: #2d333b;
+  --accent: #60a5fa;
+  --code-bg: #0b0f17;
+  --code-ink: #d7dde7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.65 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.wrap {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 20px;
+}
+
+.kv > div {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+}
+
+.kv dt {
+  color: var(--muted);
+  min-width: 72px;
+}
+
+.kv dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button {
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.output {
+  margin: 0;
+  padding: 12px;
+  min-height: 120px;
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

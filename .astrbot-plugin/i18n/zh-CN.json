@@ -1,0 +1,168 @@
+{
+  "metadata": {
+    "display_name": "AstrBot 能力展示",
+    "short_desc": "一个插件看懂 AstrBot 插件能做什么。",
+    "desc": "AstrBot 插件能力全景示例：配置 Schema、事件钩子、国际化、WebUI Page、LLM 工具与持久化存储。"
+  },
+  "config": {
+    "enabled": {
+      "description": "启用插件",
+      "hint": "关闭后本插件的所有指令与消息监听都不再响应。"
+    },
+    "greeting": {
+      "description": "问候语",
+      "hint": "使用 /showcase hello 时原样回复这段文本。"
+    },
+    "log_level": {
+      "description": "日志级别",
+      "hint": "加载时应用到本插件专属的 logger；AstrBot >= 4.26.8 才有独立 logger，更低版本不改级别以免影响全局。",
+      "labels": [
+        "调试",
+        "信息",
+        "警告",
+        "错误"
+      ]
+    },
+    "cooldown_seconds": {
+      "description": "指令冷却（秒）",
+      "hint": "同一会话内两次 /showcase ping 之间的最小间隔。"
+    },
+    "similarity_threshold": {
+      "description": "模糊匹配阈值",
+      "hint": "0~1。消息中能连续匹配到关键词的比例达到该值才触发（容忍拼写误差），用于演示 custom_filter。"
+    },
+    "enabled_features": {
+      "description": "参与演示的扩展点",
+      "hint": "逐项控制：hooks=14 个事件钩子写日志；message=消息规则监听；llm_tool=LLM 工具写日志；web_api=插件页后端接口；storage=KV 落盘；agent=类式 LLM 工具与工具循环；push=主动推送后台任务。未勾选的项直接跳过。",
+      "labels": [
+        "事件钩子",
+        "LLM 工具",
+        "Web API",
+        "持久化",
+        "消息组件",
+        "子 agent",
+        "主动推送"
+      ]
+    },
+    "keywords": {
+      "description": "关键词",
+      "hint": "自由列表：命中的消息会触发关键词规则。"
+    },
+    "chat_provider_id": {
+      "description": "演示用模型",
+      "hint": "供 /showcase ask、/showcase agent 与 LLM 工具调用，留空则相关功能提示未配置。"
+    },
+    "api_token": {
+      "description": "演示密钥",
+      "hint": "演示 secret 字段：输入框会掩码显示，但存储仍是明文，不要填真实凭据。需 WebUI ≥ 4.28.0，否则会渲染成普通文本框。"
+    },
+    "aliases": {
+      "description": "自定义别名",
+      "hint": "键值对：/showcase say <别名> 会回复对应的内容。需 WebUI ≥ 4.10.4 才有预设键编辑器。",
+      "template_schema": {
+        "hello": {
+          "name": "示例别名",
+          "description": "别名对应的回复内容",
+          "hint": "键是别名，值是要回复的文本。"
+        },
+        "weight": {
+          "name": "示例权重",
+          "description": "数值型配置项示例"
+        }
+      }
+    },
+    "manual_files": {
+      "description": "演示文件",
+      "hint": "上传后可用 /showcase notes 读取第一行，演示 file 类型与插件数据目录。需 WebUI ≥ 4.13.0 才会按 file_types 限制后缀。"
+    },
+    "advanced": {
+      "description": "高级设置",
+      "max_lines": {
+        "description": "输出最大行数",
+        "hint": "限制 /showcase config 与 /showcase notes 的输出长度；摘要共 15 行，设成更小的值就能看到截断提示。"
+      },
+      "strict_mode": {
+        "description": "严格模式",
+        "hint": "开启后，规则匹配失败会回复提示而不是静默。"
+      },
+      "rule_limit": {
+        "description": "规则条数上限",
+        "hint": "仅用于演示 condition：开启严格模式后才显示。它不参与任何逻辑，值会在 /showcase config 里回显。"
+      },
+      "debug_dump": {
+        "description": "内部调试转储",
+        "hint": "演示 invisible 字段：不在 WebUI 显示，但配置文件里仍然保留；打开后 /showcase config 会多打印一行。"
+      }
+    },
+    "rules": {
+      "description": "消息规则",
+      "hint": "演示 template_list：每种模板一套字段，添加时选择模板。需 WebUI ≥ 4.10.4；条目折叠时的标题需 ≥ 4.25.3。",
+      "templates": {
+        "keyword": {
+          "name": "关键词规则",
+          "hint": "消息包含指定关键词时回复固定内容。",
+          "pattern": {
+            "description": "关键词"
+          },
+          "reply": {
+            "description": "回复内容"
+          },
+          "case_sensitive": {
+            "description": "区分大小写"
+          }
+        },
+        "regex": {
+          "name": "正则规则",
+          "hint": "使用 Python re 语法匹配消息。",
+          "expression": {
+            "description": "正则表达式"
+          },
+          "reply": {
+            "description": "回复内容"
+          },
+          "priority": {
+            "description": "优先级",
+            "hint": "数值越大越先匹配。"
+          }
+        }
+      }
+    },
+    "push_interval_seconds": {
+      "description": "推送间隔（秒）",
+      "hint": "主动推送循环的间隔，最小 5 秒。/showcase push on 订阅当前会话后生效。"
+    },
+    "session_timeout_seconds": {
+      "description": "多轮会话超时（秒）",
+      "hint": "/showcase wizard 每一步的等待时间，超时会结束向导。"
+    },
+    "agent_instruction": {
+      "description": "子 agent 指令",
+      "hint": "工具循环（/showcase agent）使用的 system prompt，留空则用内置示例指令。"
+    }
+  },
+  "pages": {
+    "showcase": {
+      "title": "能力展示",
+      "description": "演示插件 Page：iframe 隔离、bridge 通信、i18n 与主题跟随。",
+      "heading": "AstrBot 插件能力展示",
+      "subtitle": "这个页面完全由插件目录下的静态文件渲染，通过 window.AstrBotPluginPage 与插件后端通信。",
+      "context_section": "运行上下文",
+      "plugin_name": "插件名",
+      "display_name": "展示名",
+      "page_name": "页面名",
+      "locale": "当前语言",
+      "theme": "主题",
+      "theme_dark": "深色",
+      "theme_light": "浅色",
+      "actions_section": "Bridge 调用演示",
+      "load_state": "读取运行状态 (apiGet)",
+      "load_commands": "读取注册的指令 (apiGet)",
+      "write_kv": "写入一次 KV 记录 (apiPost)",
+      "ping": "Ping 后端 (apiGet)",
+      "loading": "请求中…",
+      "empty": "点击上面的按钮发起一次 bridge 调用。",
+      "output": "返回结果",
+      "bridge_note": "bridge 还提供 upload / download / subscribeSSE，详见插件 README。"
+    }
+  }
+}

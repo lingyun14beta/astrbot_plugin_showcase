@@ -1,0 +1,206 @@
+{
+  "enabled": {
+    "description": "启用插件",
+    "hint": "关闭后本插件的所有指令与消息监听都不再响应。",
+    "type": "bool",
+    "default": true
+  },
+  "greeting": {
+    "description": "问候语",
+    "hint": "使用 /showcase hello 时原样回复这段文本。",
+    "type": "text",
+    "default": "你好，我是 AstrBot Showcase，一个用来演示插件能力边界的示例插件。"
+  },
+  "log_level": {
+    "description": "日志级别",
+    "hint": "加载时应用到本插件专属的 logger；AstrBot >= 4.26.8 才有独立 logger，更低版本不改级别以免影响全局。",
+    "type": "string",
+    "options": ["debug", "info", "warning", "error"],
+    "labels": ["调试", "信息", "警告", "错误"],
+    "default": "info"
+  },
+  "cooldown_seconds": {
+    "description": "指令冷却（秒）",
+    "hint": "同一会话内两次 /showcase ping 之间的最小间隔。",
+    "type": "int",
+    "slider": { "min": 0, "max": 60, "step": 5 },
+    "default": 5
+  },
+  "similarity_threshold": {
+    "description": "模糊匹配阈值",
+    "hint": "0~1。消息中能连续匹配到关键词的比例达到该值才触发（容忍拼写误差），用于演示 custom_filter。",
+    "type": "float",
+    "slider": { "min": 0, "max": 1, "step": 0.05 },
+    "default": 0.75
+  },
+  "push_interval_seconds": {
+    "description": "推送间隔（秒）",
+    "hint": "主动推送循环的间隔，最小 5 秒。/showcase push on 订阅当前会话后生效。",
+    "type": "int",
+    "slider": { "min": 10, "max": 600, "step": 10 },
+    "default": 60
+  },
+  "session_timeout_seconds": {
+    "description": "多轮会话超时（秒）",
+    "hint": "/showcase wizard 每一步的等待时间，超时会结束向导。",
+    "type": "int",
+    "slider": { "min": 5, "max": 300, "step": 5 },
+    "default": 30
+  },
+  "enabled_features": {
+    "description": "参与演示的扩展点",
+    "hint": "逐项控制：hooks=14 个事件钩子写日志；message=消息规则监听；llm_tool=LLM 工具写日志；web_api=插件页后端接口；storage=KV 落盘；agent=类式 LLM 工具与工具循环；push=主动推送后台任务。未勾选的项直接跳过。",
+    "type": "list",
+    "options": ["hooks", "llm_tool", "web_api", "storage", "message", "agent", "push"],
+    "labels": ["事件钩子", "LLM 工具", "Web API", "持久化", "消息组件", "子 agent", "主动推送"],
+    "render_type": "checkbox",
+    "default": ["hooks", "llm_tool", "web_api", "storage", "message", "agent", "push"]
+  },
+  "keywords": {
+    "description": "关键词",
+    "hint": "自由列表：命中的消息会触发关键词规则。",
+    "type": "list",
+    "default": ["astrbot", "showcase"]
+  },
+  "chat_provider_id": {
+    "description": "演示用模型",
+    "hint": "供 /showcase ask、/showcase agent 与 LLM 工具调用，留空则相关功能提示未配置。",
+    "type": "string",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "agent_instruction": {
+    "description": "子 agent 指令",
+    "hint": "工具循环（/showcase agent）使用的 system prompt，留空则用内置示例指令。",
+    "type": "text",
+    "editor_mode": true,
+    "editor_language": "markdown",
+    "default": ""
+  },
+  "api_token": {
+    "description": "演示密钥",
+    "hint": "演示 secret 字段：输入框会掩码显示，但存储仍是明文，不要填真实凭据。需 WebUI ≥ 4.28.0，否则会渲染成普通文本框。",
+    "type": "string",
+    "secret": true,
+    "default": ""
+  },
+  "aliases": {
+    "description": "自定义别名",
+    "hint": "键值对：/showcase say <别名> 会回复对应的内容。需 WebUI ≥ 4.10.4 才有预设键编辑器。",
+    "type": "dict",
+    "items": {},
+    "default": {},
+    "template_schema": {
+      "hello": {
+        "name": "示例别名",
+        "description": "别名对应的回复内容",
+        "hint": "键是别名，值是要回复的文本。",
+        "type": "string",
+        "default": "Hello from AstrBot Showcase!"
+      },
+      "weight": {
+        "name": "示例权重",
+        "description": "数值型配置项示例",
+        "type": "int",
+        "default": 1,
+        "slider": { "min": 0, "max": 10, "step": 1 }
+      }
+    }
+  },
+  "manual_files": {
+    "description": "演示文件",
+    "hint": "上传后可用 /showcase notes 读取第一行，演示 file 类型与插件数据目录。需 WebUI ≥ 4.13.0 才会按 file_types 限制后缀。",
+    "type": "file",
+    "file_types": ["txt", "md"],
+    "default": []
+  },
+  "advanced": {
+    "description": "高级设置",
+    "type": "object",
+    "items": {
+      "max_lines": {
+        "description": "输出最大行数",
+        "hint": "限制 /showcase config 与 /showcase notes 的输出长度；摘要共 15 行，设成更小的值就能看到截断提示。",
+        "type": "int",
+        "slider": { "min": 1, "max": 50, "step": 1 },
+        "default": 20
+      },
+      "strict_mode": {
+        "description": "严格模式",
+        "hint": "开启后，规则匹配失败会回复提示而不是静默。",
+        "type": "bool",
+        "default": false
+      },
+      "rule_limit": {
+        "description": "规则条数上限",
+        "hint": "仅用于演示 condition：开启严格模式后才显示。它不参与任何逻辑，值会在 /showcase config 里回显。",
+        "type": "int",
+        "slider": { "min": 1, "max": 20, "step": 1 },
+        "condition": { "strict_mode": true },
+        "default": 5
+      },
+      "debug_dump": {
+        "description": "内部调试转储",
+        "hint": "演示 invisible 字段：不在 WebUI 显示，但配置文件里仍然保留；打开后 /showcase config 会多打印一行。",
+        "type": "bool",
+        "invisible": true,
+        "default": false
+      }
+    }
+  },
+  "rules": {
+    "description": "消息规则",
+    "hint": "演示 template_list：每种模板一套字段，添加时选择模板。需 WebUI ≥ 4.10.4；条目折叠时的标题需 ≥ 4.25.3。",
+    "type": "template_list",
+    "default": [],
+    "templates": {
+      "keyword": {
+        "name": "关键词规则",
+        "hint": "消息包含指定关键词时回复固定内容。",
+        "display_item": "pattern",
+        "hide_hint_in_list": true,
+        "items": {
+          "pattern": {
+            "description": "关键词",
+            "type": "string",
+            "default": ""
+          },
+          "reply": {
+            "description": "回复内容",
+            "type": "text",
+            "default": ""
+          },
+          "case_sensitive": {
+            "description": "区分大小写",
+            "type": "bool",
+            "default": false
+          }
+        }
+      },
+      "regex": {
+        "name": "正则规则",
+        "hint": "使用 Python re 语法匹配消息。",
+        "display_item": "expression",
+        "items": {
+          "expression": {
+            "description": "正则表达式",
+            "type": "string",
+            "default": ""
+          },
+          "reply": {
+            "description": "回复内容",
+            "type": "text",
+            "default": ""
+          },
+          "priority": {
+            "description": "优先级",
+            "hint": "数值越大越先匹配。",
+            "type": "int",
+            "slider": { "min": 0, "max": 100, "step": 1 },
+            "default": 10
+          }
+        }
+      }
+    }
+  }
+}

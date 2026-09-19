@@ -1,0 +1,168 @@
+{
+  "metadata": {
+    "display_name": "AstrBot 機能ショーケース",
+    "short_desc": "1 つのプラグインで AstrBot プラグインのできることが分かります。",
+    "desc": "AstrBot プラグインの機能を一通り示すサンプル：設定スキーマ、イベントフック、国際化、WebUI ページ、LLM ツール、永続化ストレージ。"
+  },
+  "config": {
+    "enabled": {
+      "description": "プラグインを有効化",
+      "hint": "オフにすると、このプラグインのコマンドとメッセージ監視はすべて反応しなくなります。"
+    },
+    "greeting": {
+      "description": "挨拶文",
+      "hint": "/showcase hello でこのテキストをそのまま返します。"
+    },
+    "log_level": {
+      "description": "ログレベル",
+      "hint": "読み込み時にこのプラグイン専用の logger に適用します。AstrBot 4.26.8 以降はプラグインごとの logger に対応しており、それ以前のバージョンでは全体に影響しないようレベルを変更しません。",
+      "labels": [
+        "デバッグ",
+        "情報",
+        "警告",
+        "エラー"
+      ]
+    },
+    "cooldown_seconds": {
+      "description": "コマンドのクールダウン（秒）",
+      "hint": "同じセッションで /showcase ping を連続実行できる最小間隔。"
+    },
+    "similarity_threshold": {
+      "description": "あいまい一致のしきい値",
+      "hint": "0〜1。メッセージ内でキーワードがこの割合以上連続して一致すると発動します（誤入力も許容）。custom_filter のデモです。"
+    },
+    "enabled_features": {
+      "description": "デモ対象の拡張ポイント",
+      "hint": "項目ごとのスイッチ：hooks＝14 個のイベントフックがログ出力、message＝ルール監視、llm_tool＝LLM ツールのログ、web_api＝プラグインページのバックエンド、storage＝KV の保存、agent＝クラス型 LLM ツールとツールループ、push＝主动推送のバックグラウンドタスク。未チェックの項目はスキップします。",
+      "labels": [
+        "イベントフック",
+        "LLM ツール",
+        "Web API",
+        "永続化",
+        "メッセージ部品",
+        "サブエージェント",
+        "主动推送"
+      ]
+    },
+    "keywords": {
+      "description": "キーワード",
+      "hint": "自由入力のリスト。一致したメッセージがキーワードルールを発動します。"
+    },
+    "chat_provider_id": {
+      "description": "デモ用モデル",
+      "hint": "/showcase ask、/showcase agent、LLM ツールで使用します。空欄の場合は未設定の案内を返します。"
+    },
+    "api_token": {
+      "description": "デモ用シークレット",
+      "hint": "secret フィールドのデモ：入力欄はマスク表示されますが、保存は平文です。実際の認証情報は入れないでください。WebUI 4.28.0 以降が必要で、それ以前は通常のテキスト欄になります。"
+    },
+    "aliases": {
+      "description": "カスタム別名",
+      "hint": "キーと値のペア：/showcase say <別名> で対応する内容を返します。プリセット編集には WebUI 4.10.4 以降が必要です。",
+      "template_schema": {
+        "hello": {
+          "name": "別名の例",
+          "description": "別名に対応する返信内容",
+          "hint": "キーが別名、値が返信テキストです。"
+        },
+        "weight": {
+          "name": "数値項目の例",
+          "description": "数値型の設定項目の例"
+        }
+      }
+    },
+    "manual_files": {
+      "description": "デモ用ファイル",
+      "hint": "アップロード後に /showcase notes で先頭行を読み取ります（file 型とプラグインデータディレクトリのデモ）。file_types による拡張子制限には WebUI 4.13.0 以降が必要です。"
+    },
+    "advanced": {
+      "description": "詳細設定",
+      "max_lines": {
+        "description": "最大出力行数",
+        "hint": "/showcase config と /showcase notes の出力行数を制限します。概要は 15 行なので、より小さい値にすると省略メッセージを確認できます。"
+      },
+      "strict_mode": {
+        "description": "厳格モード",
+        "hint": "オンの場合、ルールに一致しなかったときは黙らずに案内を返します。"
+      },
+      "rule_limit": {
+        "description": "ルール上限数",
+        "hint": "condition のデモ専用：厳格モードがオンのときだけ表示されます。ロジックには関与せず、値は /showcase config に表示されます。"
+      },
+      "debug_dump": {
+        "description": "内部デバッグダンプ",
+        "hint": "invisible のデモ：WebUI には表示されませんが設定ファイルには残ります。オンにすると /showcase config の出力が 1 行増えます。"
+      }
+    },
+    "rules": {
+      "description": "メッセージルール",
+      "hint": "template_list のデモ：テンプレートごとに項目が異なり、追加時に選択します。WebUI 4.10.4 以降が必要で、折りたたみ時のタイトルには 4.25.3 以降が必要です。",
+      "templates": {
+        "keyword": {
+          "name": "キーワードルール",
+          "hint": "メッセージにキーワードが含まれると定型文を返します。",
+          "pattern": {
+            "description": "キーワード"
+          },
+          "reply": {
+            "description": "返信内容"
+          },
+          "case_sensitive": {
+            "description": "大文字小文字を区別"
+          }
+        },
+        "regex": {
+          "name": "正規表現ルール",
+          "hint": "Python の re 構文でメッセージを照合します。",
+          "expression": {
+            "description": "正規表現"
+          },
+          "reply": {
+            "description": "返信内容"
+          },
+          "priority": {
+            "description": "優先度",
+            "hint": "値が大きいほど先に照合されます。"
+          }
+        }
+      }
+    },
+    "push_interval_seconds": {
+      "description": "推送間隔（秒）",
+      "hint": "主动推送ループの間隔（最小 5 秒）。/showcase push on で購読後に有効になります。"
+    },
+    "session_timeout_seconds": {
+      "description": "多輪会話のタイムアウト（秒）",
+      "hint": "/showcase wizard の各ステップの待ち時間。タイムアウトで終了します。"
+    },
+    "agent_instruction": {
+      "description": "サブエージェントの指示",
+      "hint": "ツールループ（/showcase agent）で使う system prompt。空欄なら組み込みの例を使用します。"
+    }
+  },
+  "pages": {
+    "showcase": {
+      "title": "機能ショーケース",
+      "description": "プラグインページのデモ：iframe 分離、bridge 通信、i18n、テーマ追従。",
+      "heading": "AstrBot プラグインの機能",
+      "subtitle": "このページはプラグインディレクトリ内の静的ファイルだけで描画され、window.AstrBotPluginPage 経由でバックエンドと通信します。",
+      "context_section": "実行コンテキスト",
+      "plugin_name": "プラグイン名",
+      "display_name": "表示名",
+      "page_name": "ページ名",
+      "locale": "言語",
+      "theme": "テーマ",
+      "theme_dark": "ダーク",
+      "theme_light": "ライト",
+      "actions_section": "Bridge 呼び出しのデモ",
+      "load_state": "実行状態を取得 (apiGet)",
+      "load_commands": "登録済みコマンドを取得 (apiGet)",
+      "write_kv": "KV を 1 件書き込む (apiPost)",
+      "ping": "バックエンドに Ping (apiGet)",
+      "loading": "リクエスト中…",
+      "empty": "上のボタンから bridge 呼び出しを実行してください。",
+      "output": "レスポンス",
+      "bridge_note": "bridge には upload / download / subscribeSSE もあります。詳細は README を参照してください。"
+    }
+  }
+}
