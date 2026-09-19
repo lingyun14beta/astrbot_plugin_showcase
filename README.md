@@ -8,11 +8,25 @@ AstrBot 插件能力全景示例：**一个插件，把所有扩展点各演示�
 > 适用版本：AstrBot `>=4.27.3`（`metadata.yaml` 的 `astrbot_version`，下限由 `/showcase tools on|off`
 > 用到的 `activate_llm_tool_async` 决定；注释里列了每个 API 的引入版本）。
 
+## 适合谁
+
+给**写 AstrBot 插件的人**看的参考实现，不是给终端用户用的功能插件。
+
+- 看官方文档嫌慢、看 helloworld 模板嫌少，想直接抄一份能跑的全量示例的插件开发者；
+- 已经被 AstrBot 插件 API 坑过一次、想先摸清「哪些能拆、哪些不能」（见下文）再动手的人；
+- 打算用 AI 写 AstrBot 插件、需要给模型喂一份准确 API 参照的人。
+
+反过来，两种人不用装：只想要一个能干活的功能插件的人（本插件没有业务功能，只会多出一整棵 `/showcase`
+指令树和一套配置项），以及 AstrBot `<4.27.3` 的用户（`metadata.yaml` 的 `astrbot_version` 会直接拦住加载）。
+
+最省时间的用法：别整仓库读。`/showcase` 打一遍指令树 → 挑中你想做的那类功能 → 只翻 `showcase/` 下对应的
+那一个文件（每个 70~150 行）。
+
 ## 安装
 
 ```bash
 cd AstrBot/data/plugins
-git clone https://github.com/lingyun14beta/helloworld astrbot_plugin_showcase
+git clone https://github.com/lingyun14beta/astrbot_plugin_showcase
 ```
 
 在 WebUI 的「插件」页重载本插件即可。插件无第三方依赖，不需要 `requirements.txt`。
