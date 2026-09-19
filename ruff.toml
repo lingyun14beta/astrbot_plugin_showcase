@@ -1,0 +1,19 @@
+# 插件自己的 ruff 配置：与 AstrBot 仓库的风格保持一致（line-length 88、py310 目标），
+# 但**不排除 tests/**，这样 CI 与本地跑的是同一套规则。
+line-length = 88
+target-version = "py310"
+
+[lint]
+select = [
+  "F",     # Pyflakes
+  "W",     # pycodestyle warnings
+  "E",     # pycodestyle errors
+  "ASYNC", # flake8-async
+  "C4",    # flake8-comprehensions
+  "Q",     # flake8-quotes
+  "I",     # import-order
+  "UP",    # pyupgrade
+]
+ignore = [
+  "E501", # 由 formatter 控制行长
+]

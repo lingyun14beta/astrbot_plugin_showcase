@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tooling
+        run: pip install ruff pytest
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      # 纯逻辑单测（showcase/rules.py）不需要 AstrBot；集成测试在没装 AstrBot 时自动跳过
+      - name: Tests
+        run: pytest
