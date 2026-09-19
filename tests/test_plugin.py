@@ -158,6 +158,9 @@ class FakeEvent:
     def plain_result(self, text):
         return text
 
+    def image_result(self, url_or_path):
+        return f"IMAGE:{url_or_path}"
+
     def set_extra(self, key, value):
         self.extras[key] = value
 
@@ -509,4 +512,81 @@ def test_流式发送():
     plugin, _ = build()
     event = FakeEvent()
     collect(plugin.showcase_stream(event))
-    assert len(event.streamed) == 3
+    assert [chain.get_plain_text() for chain in event.streamed] == [
+        "流式第 1/3 块…",
+        "流式第 2/3 块…",
+        "流式第 3/3 块…",
+    ]
+
+
+def test_平台原生撤回():
+    plugin, _ = build()
+    event = FakeEvent()
+    event.calls = []
+    event.bot = types.SimpleNamespace(
+        api=types.SimpleNamespace(
+            call_action=lambda name, **kw: _record(event, name, kw)
+        )
+    )
+    collect(plugin.showcase_recall(event))
+    assert event.calls == [("delete_msg", {"message_id": 12345})]
+
+
+async def _record(event, name, kwargs):
+    event.calls.append((name, kwargs))
+    return {"status": "ok"}
+
+
+# ---------------- 特性开关（enabled_features） ----------------
+
+
+def test_count_hook按特性开关放行():
+    plugin, _ = build()
+    assert plugin.count_hook("x", "hooks") is True
+    assert plugin.count_hook("x", "llm_tool") is True
+    assert plugin.hook_counts["x"] == 2
+
+    plugin, _ = build(["message"])
+    assert plugin.count_hook("x", "hooks") is False
+    assert plugin.count_hook("x", "llm_tool") is False
+
+
+def test_未勾选push时不订阅():
+    async def flow():
+        plugin, _ = build(["hooks"])
+        await plugin.showcase_push_on(FakeEvent(umo="test:private:X")).__anext__()
+        return await plugin.push.targets()
+
+    assert asyncio.run(flow()) == []
+
+
+def test_state未勾选storage时不写KV():
+    plugin, _ = build(["hooks", "message"])
+    written: list[str] = []
+    plugin.put_kv_data = _recorder(written)
+    out = str(collect(plugin.showcase_state(FakeEvent()))[0])
+    assert written == []
+    assert "未勾选 storage" in out
+
+
+def _recorder(sink):
+    async def put(key, value):
+        sink.append(key)
+
+    return put
+
+
+def test_card使用本地路径渲染():
+    plugin, _ = build()
+    captured: dict = {}
+
+    async def fake_render(tmpl, data, return_url=True, options=None):
+        captured["return_url"] = return_url
+        return "/tmp/fake.png"
+
+    plugin.html_render = fake_render
+    event = FakeEvent()
+    out = collect(plugin.showcase_card(event))
+    # 用本地路径而不是渲染端点 URL：平台不一定能访问后者
+    assert captured["return_url"] is False
+    assert str(out[0]) == "IMAGE:/tmp/fake.png"

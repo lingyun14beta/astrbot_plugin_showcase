@@ -21,9 +21,11 @@ git clone https://github.com/lingyun14beta/helloworld astrbot_plugin_showcase
 
 ```
 astrbot_plugin_showcase/
-├── main.py                        # 注册面：全部 @filter.* 装饰器、指令、Web API 注册
-├── showcase/                      # 纯逻辑子包（不带装饰器，见下）
+├── main.py                        # 注册面：全部 @filter.* 装饰器（一行委托）+ 指令 + 装配
+├── showcase/                      # 子包
 │   ├── rules.py                   #   规则匹配与模糊匹配（不依赖 astrbot，可单测）
+│   ├── hooks.py                   #   14 个钩子的实现
+│   ├── web_api.py                 #   Page 的 4 个后端接口
 │   ├── cron.py                    #   定时任务
 │   ├── push.py                    #   主动推送后台任务
 │   ├── wizard.py                  #   多轮会话状态机
@@ -42,11 +44,29 @@ astrbot_plugin_showcase/
 └── LICENSE
 ```
 
-为什么装饰器全在 `main.py`：AstrBot 在多处直接索引 `star_map[handler.handler_module_path]`
-（`star_manager.py` 的 `on_plugin_loaded` 日志、`waking_check/stage.py` 的过滤器异常分支），
-而 `star_map` 只为「定义了 Star 子类的模块」建条目 —— 也就是插件主模块。把 `@filter.*`
-放进子模块会让钩子静默不触发，所以子包里只放**不带装饰器**的逻辑（卸载清理是按模块前缀做的，
-子模块会被正确回收）。
+### 哪些能拆、哪些不能
+
+`main.py` 里保留的是**被 `@filter.*` 装饰的函数本体**，实现一律放子包。这不是风格选择，而是
+AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handler_module_path]`
+（通用钩子派发 `core/pipeline/context_utils.py:99`、`core/core_lifecycle.py:373`、
+`core/star/star_manager.py:1430/1972`、`core/pipeline/result_decorate/stage.py:166-186`、
+`core/platform/manager.py:234`、`core/pipeline/waking_check/stage.py:205/225` 等），
+而 `star_map` 只为「定义了 Star 子类的模块」建条目 —— 也就是插件主模块。
+
+把被装饰的函数放进子模块的后果不是「少一条日志」：
+
+- `context_utils.py` 里那行日志在 `try` 内、但「事件被 stop」的日志在 `try` 外，
+  所以钩子既不会执行（异常被 `except BaseException` 吞掉，只留一条 traceback），
+  还可能让 KeyError 冒泡进管线；
+- 插件加载/卸载、`on_decorating_result`、`on_platform_loaded` 等钩子的日志同样会炸。
+
+所以本插件的做法是：**main.py 只写「装饰器 + 一行委托」**（和官方内置插件把指令实现放进
+`commands/` 同一个套路），逻辑放 `showcase/hooks.py`。
+
+**可以随便拆的**：Web API handler（只登记在 `Context.registered_web_apis` 这个普通列表里，
+不经过 `star_handlers_registry`，见 `showcase/web_api.py`）、类式 LLM 工具
+（`_resolve_tool_handler_module_path` 会把子模块路径归一化到插件主模块，工具归属仍然正确）、
+以及所有纯逻辑与状态机。
 
 其中 `CHANGELOG.md` 也是 AstrBot 认的约定：插件详情页会读插件目录下的更新日志文件
 （依次尝试 `CHANGELOG.md` → `changelog.md` → `CHANGELOG` → `changelog`，见

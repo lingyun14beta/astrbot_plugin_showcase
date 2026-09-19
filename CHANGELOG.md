@@ -45,8 +45,9 @@
 - **i18n**：`.astrbot-plugin/i18n/{zh-CN,en-US,ja-JP}.json`，覆盖插件信息、全部配置项文案与页面文案
 - **持久化**：KV 存储、插件数据目录、读取配置页上传的文件
 - **插件自带 Skill**：`skills/showcase-guide/SKILL.md`，在 WebUI 里作为只读技能来源展示
-- **工程结构**：`showcase/` 子包承载纯逻辑（规则匹配 / 定时任务 / 推送 / 向导 / 类式工具），
-  装饰器全部留在 `main.py`
+- **工程结构**：`showcase/` 子包承载实现（规则匹配 / 钩子 / Web API / 定时任务 / 推送 / 向导 / 类式工具），
+  `main.py` 只保留被装饰的函数与一行委托 —— 因为 AstrBot 会按 `handler_module_path` 直接索引
+  `star_map`，装饰器不能放进子模块（README 有完整说明）
 - **测试与 CI**：`tests/test_rules.py`（纯逻辑，不需要 AstrBot）、`tests/test_plugin.py`（集成，环境不具备时自动跳过）、
   `.github/workflows/ci.yml`（ruff + pytest）、`logo.png`、`metadata.yaml` 的市场标签
 - **文档**：README（含 core 与 WebUI 两条版本线的能力对照表、进阶扩展点说明、不建议使用的 API 清单）、本更新日志

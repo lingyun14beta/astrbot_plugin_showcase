@@ -29,28 +29,21 @@ from typing import Any
 from astrbot.api import AstrBotConfig, ToolSet, logger, sp
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.message_components import At, Plain
-from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
-from astrbot.api.web import error_response, json_response, request
-from astrbot.core.agent.message import TextPart
-from astrbot.core.agent.run_context import ContextWrapper
-from astrbot.core.agent.tool import FunctionTool
-from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.star.star import star_map
-from astrbot.core.star.star_handler import star_handlers_registry
-from mcp.types import CallToolResult
 
 from .showcase.cron import CronDemo
+from .showcase.hooks import ShowcaseHooks
 from .showcase.push import PushService
 from .showcase.rules import fuzzy_hit, invalid_regexes, match_reply
 from .showcase.tools import ShowcaseSlowReportTool, ShowcaseStatusTool
+from .showcase.web_api import ShowcaseWebAPI
 from .showcase.wizard import ShowcaseWizard
 
 PLUGIN_NAME = "astrbot_plugin_showcase"
 LOG = "[showcase]"
 I18N_DIR = Path(__file__).resolve().parent / ".astrbot-plugin" / "i18n"
-WEB_API_DISABLED = "插件未启用，或 enabled_features 未勾选 web_api"
 
 
 class PluginEnabledFilter(filter.CustomFilter):
@@ -134,14 +127,16 @@ class ShowcasePlugin(Star):
 
         # 运行期状态：会话冷却时间戳、各钩子调用次数、已发送条数（内存计数，
         # 只在用户主动查看时才落盘，避免每条消息都写一次存储）。
+        # hook_counts / sent_count 是公开的：子模块与 Web API 都要读它们。
         self._last_ping: dict[str, float] = {}
-        self._hook_counts: dict[str, int] = {}
-        self._sent_count = 0
+        self.hook_counts: dict[str, int] = {}
+        self.sent_count = 0
 
         # ---- 子模块里的有状态逻辑（装饰器全留在本文件，见 showcase/__init__.py 的说明）----
         self.push = PushService(self)
         self.wizard = ShowcaseWizard(self)
         self.cron = CronDemo(self)
+        self.hooks = ShowcaseHooks(self)
         # 类式函数工具：手写 JSON Schema，注册进 context 维护的工具列表。
         # 其中慢报告工具声明为 is_background_task，调用后立刻返回任务号。
         self.status_tool = ShowcaseStatusTool(plugin=self)
@@ -149,23 +144,9 @@ class ShowcasePlugin(Star):
         if "agent" in self.features:
             context.add_llm_tools(self.status_tool, self.slow_tool)
 
-        # ---- 注册 WebUI Page 用到的后端接口 ----
-        # 路由必须带插件名前缀；插件页里 bridge.apiGet("state") 调用时不带前缀。
-        context.register_web_api(
-            f"/{PLUGIN_NAME}/ping", self.api_ping, ["GET"], "连通性测试"
-        )
-        context.register_web_api(
-            f"/{PLUGIN_NAME}/state", self.api_state, ["GET"], "插件运行状态"
-        )
-        context.register_web_api(
-            f"/{PLUGIN_NAME}/commands",
-            self.api_commands,
-            ["GET"],
-            "本插件注册的指令与钩子",
-        )
-        context.register_web_api(
-            f"/{PLUGIN_NAME}/kv", self.api_kv, ["POST"], "写入一条 KV 记录"
-        )
+        # ---- WebUI Page 的后端接口（实现在 showcase/web_api.py，路由带插件名前缀）----
+        self.web_api = ShowcaseWebAPI(self)
+        self.web_api.register()
         logger.info(
             f"{LOG} 已加载：features={sorted(self.features)} rules={len(self.rules)}"
         )
@@ -185,11 +166,11 @@ class ShowcasePlugin(Star):
     async def terminate(self) -> None:
         """插件被停用、重载或卸载时被调用。"""
         await self.push.stop()
-        total = sum(self._hook_counts.values())
+        total = sum(self.hook_counts.values())
         logger.info(f"{LOG} terminate(): 本次共触发钩子 {total} 次")
 
     # ------------------------------------------------------------------
-    # 内部工具
+    # 内部工具（子模块与 Web API 也会用到，因此是公开方法）
     # ------------------------------------------------------------------
 
     def hook_counters_text(self) -> str:
@@ -199,11 +180,11 @@ class ShowcasePlugin(Star):
             形如 "on_llm_request=3, on_message=5" 的文本，从未触发时返回提示语。
         """
         return (
-            ", ".join(f"{k}={v}" for k, v in sorted(self._hook_counts.items()))
+            ", ".join(f"{k}={v}" for k, v in sorted(self.hook_counts.items()))
             or "（暂无）"
         )
 
-    def _hook(self, name: str, feature: str = "hooks") -> bool:
+    def count_hook(self, name: str, feature: str = "hooks") -> bool:
         """记录一次钩子调用，并返回该扩展点是否在配置中启用。
 
         Args:
@@ -213,7 +194,7 @@ class ShowcasePlugin(Star):
         Returns:
             配置的 enabled_features 中包含 feature 时为 True。
         """
-        self._hook_counts[name] = self._hook_counts.get(name, 0) + 1
+        self.hook_counts[name] = self.hook_counts.get(name, 0) + 1
         return feature in self.features
 
     def _t(self, key: str, locale: str = "zh-CN", default: str = "") -> str:
@@ -438,13 +419,13 @@ class ShowcasePlugin(Star):
         if "storage" not in self.features:
             yield event.plain_result(
                 f"enabled_features 未勾选 storage，本次不写入 KV。\n"
-                f"内存计数：已发送 {self._sent_count} 条\n钩子计数：{counters}"
+                f"内存计数：已发送 {self.sent_count} 条\n钩子计数：{counters}"
             )
             return
         record = {
             "umo": event.unified_msg_origin,
             "at": time.strftime("%H:%M:%S"),
-            "sent_count": self._sent_count,
+            "sent_count": self.sent_count,
         }
         await self.put_kv_data("last_state_call", record)
         stored = await self.get_kv_data("last_state_call", None)
@@ -884,49 +865,42 @@ class ShowcasePlugin(Star):
         Returns:
             带 [showcase] 前缀的回显结果；返回值会回填给模型继续生成回复。
         """
-        if self._hook("llm_tool.showcase_echo", "llm_tool"):
+        if self.count_hook("llm_tool.showcase_echo", "llm_tool"):
             logger.info(f"{LOG} LLM 工具 showcase_echo 被调用：{text!r}")
         return f"[showcase] {text}"
 
     # ------------------------------------------------------------------
-    # 事件钩子：全部注册一遍，各自只做观察与计数
+    # 事件钩子：装饰器必须留在本文件（AstrBot 会按 handler_module_path 直接索引 star_map），
+    # 所以这里只做一行委托，实现在 showcase/hooks.py
     # ------------------------------------------------------------------
 
     @filter.on_astrbot_loaded()
     async def on_astrbot_loaded(self) -> None:
-        """AstrBot 整体加载完成时触发。"""
-        if not self._hook("on_astrbot_loaded"):
-            return
-        logger.info(f"{LOG} on_astrbot_loaded")
+        """AstrBot 整体加载完成时触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_astrbot_loaded()
 
     @filter.on_platform_loaded()
     async def on_platform_loaded(self) -> None:
-        """平台适配器加载完成时触发。"""
-        if not self._hook("on_platform_loaded"):
-            return
-        logger.info(f"{LOG} on_platform_loaded")
+        """平台适配器加载完成时触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_platform_loaded()
 
     @filter.on_plugin_loaded()
     async def on_plugin_loaded(self, metadata: Any) -> None:
-        """任意插件加载完成时触发。
+        """任意插件加载完成时触发（实现见 showcase/hooks.py）。
 
         Args:
             metadata: 被加载插件的 StarMetadata。
         """
-        if not self._hook("on_plugin_loaded"):
-            return
-        logger.debug(f"{LOG} on_plugin_loaded: {getattr(metadata, 'name', '?')}")
+        await self.hooks.on_plugin_loaded(metadata)
 
     @filter.on_plugin_unloaded()
     async def on_plugin_unloaded(self, metadata: Any) -> None:
-        """任意插件卸载完成时触发。
+        """任意插件卸载完成时触发（实现见 showcase/hooks.py）。
 
         Args:
             metadata: 被卸载插件的 StarMetadata。
         """
-        if not self._hook("on_plugin_unloaded"):
-            return
-        logger.debug(f"{LOG} on_plugin_unloaded: {getattr(metadata, 'name', '?')}")
+        await self.hooks.on_plugin_unloaded(metadata)
 
     @filter.on_plugin_error()
     async def on_plugin_error(
@@ -937,183 +911,73 @@ class ShowcasePlugin(Star):
         error: Exception,
         traceback_text: str,
     ) -> None:
-        """插件处理消息抛异常时触发；调用 event.stop_event() 可屏蔽默认报错回显。"""
-        if not self._hook("on_plugin_error"):
-            return
-        logger.warning(
-            f"{LOG} on_plugin_error: plugin={plugin_name} "
-            f"handler={handler_name} err={error}"
+        """插件处理消息抛异常时触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_plugin_error(
+            event, plugin_name, handler_name, error, traceback_text
         )
 
     @filter.on_waiting_llm_request()
     async def on_waiting_llm_request(self, event: AstrMessageEvent) -> None:
-        """消息确定要调用 LLM、但还没拿到会话锁时触发（可发“思考中”提示）。"""
-        if not self._hook("on_waiting_llm_request"):
-            return
-        logger.debug(f"{LOG} on_waiting_llm_request: {event.unified_msg_origin}")
+        """消息确定要调用 LLM、但还没拿到会话锁时触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_waiting_llm_request(event)
 
     @filter.on_llm_request()
-    async def on_llm_request(
-        self, event: AstrMessageEvent, req: ProviderRequest
-    ) -> None:
-        """每次 LLM 请求前触发；开启 inject_context 后往请求里注入一条临时上下文。
+    async def on_llm_request(self, event: AstrMessageEvent, req: Any) -> None:
+        """每次 LLM 请求前触发（实现见 showcase/hooks.py）。
 
-        用 ``extra_user_content_parts`` + ``mark_as_temp()`` 而不是拼 ``system_prompt``：
-        临时片段不会写进历史，也不破坏 system prompt 的缓存前缀。
+        Args:
+            event: 消息事件。
+            req: ProviderRequest，开启 inject_context 后会被追加临时上下文。
         """
-        if not self._hook("on_llm_request"):
-            return
-        if self.inject_context:
-            req.extra_user_content_parts.append(
-                TextPart(
-                    text=(
-                        f"[showcase] 当前时间 {time.strftime('%Y-%m-%d %H:%M:%S')}，"
-                        f"会话 {event.unified_msg_origin}，平台 {event.get_platform_name()}。"
-                    )
-                ).mark_as_temp()
-            )
-        logger.debug(
-            f"{LOG} on_llm_request: prompt={len(req.prompt or '')} 字, "
-            f"contexts={len(req.contexts or [])}, 临时片段={len(req.extra_user_content_parts)}"
-        )
+        await self.hooks.on_llm_request(event, req)
 
     @filter.on_llm_response()
-    async def on_llm_response(self, event: AstrMessageEvent, resp: LLMResponse) -> None:
-        """LLM 返回后触发；可读取 reasoning_content、改写 result_chain。"""
-        if not self._hook("on_llm_response"):
-            return
-        logger.debug(f"{LOG} on_llm_response: {len(resp.completion_text or '')} 字")
+    async def on_llm_response(self, event: AstrMessageEvent, resp: Any) -> None:
+        """LLM 返回后触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_llm_response(event, resp)
 
     @filter.on_agent_begin()
-    async def on_agent_begin(
-        self, event: AstrMessageEvent, run_context: ContextWrapper[AstrAgentContext]
-    ) -> None:
-        """Agent 开始运行时触发。"""
-        if not self._hook("on_agent_begin"):
-            return
-        logger.debug(f"{LOG} on_agent_begin: {event.unified_msg_origin}")
+    async def on_agent_begin(self, event: AstrMessageEvent, run_context: Any) -> None:
+        """Agent 开始运行时触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_agent_begin(event, run_context)
 
     @filter.on_agent_done()
     async def on_agent_done(
-        self,
-        event: AstrMessageEvent,
-        run_context: ContextWrapper[AstrAgentContext],
-        resp: LLMResponse,
+        self, event: AstrMessageEvent, run_context: Any, resp: Any
     ) -> None:
-        """Agent 运行完成后触发。"""
-        if not self._hook("on_agent_done"):
-            return
-        logger.debug(f"{LOG} on_agent_done: {len(resp.completion_text or '')} 字")
+        """Agent 运行完成后触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_agent_done(event, run_context, resp)
 
     @filter.on_using_llm_tool()
     async def on_using_llm_tool(
-        self, event: AstrMessageEvent, tool: FunctionTool, tool_args: dict | None
+        self, event: AstrMessageEvent, tool: Any, tool_args: dict | None
     ) -> None:
-        """调用函数工具之前触发。"""
-        if not self._hook("on_using_llm_tool"):
-            return
-        logger.debug(f"{LOG} on_using_llm_tool: {tool.name} args={tool_args}")
+        """调用函数工具之前触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_using_llm_tool(event, tool, tool_args)
 
     @filter.on_llm_tool_respond()
     async def on_llm_tool_respond(
         self,
         event: AstrMessageEvent,
-        tool: FunctionTool,
+        tool: Any,
         tool_args: dict | None,
-        tool_result: CallToolResult | None,
+        tool_result: Any,
     ) -> None:
-        """函数工具返回之后触发。"""
-        if not self._hook("on_llm_tool_respond"):
-            return
-        logger.debug(f"{LOG} on_llm_tool_respond: {tool.name}")
+        """函数工具返回之后触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.on_llm_tool_respond(event, tool, tool_args, tool_result)
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent) -> None:
-        """消息发送前触发；这里真正改写消息链（不只是记日志）。
+        """消息发送前触发（实现见 showcase/hooks.py）。
 
-        两件事：按配置给所有回复加前缀；把 /showcase extras 挂在事件上的内容追加出来
-        （演示同一次事件里不同 handler 之间用 set_extra/get_extra 传信息）。
+        按配置给回复加前缀，并把 event extra 追加出来 —— 是少数真正改写消息链的钩子。
         """
-        if not self._hook("on_decorating_result"):
-            return
-        result = event.get_result()
-        if result is None or not result.chain:
-            return
-        if self.reply_prefix:
-            result.chain.insert(0, Plain(self.reply_prefix))
-        note = event.get_extra("showcase_note")
-        if note:
-            result.chain.append(Plain(f"\n（event extra：{note}）"))
-        logger.debug(
-            f"{LOG} on_decorating_result: 处理后 {len(result.chain)} 个组件"
-            f"（prefix={bool(self.reply_prefix)}, extra={bool(note)}）"
-        )
+        await self.hooks.on_decorating_result(event)
 
     @filter.after_message_sent()
     async def after_message_sent(self, event: AstrMessageEvent) -> None:
-        """消息真正发出后触发；这里只做内存计数，落盘交给 /showcase state。"""
-        if not self._hook("after_message_sent"):
-            return
-        self._sent_count += 1
-        logger.debug(f"{LOG} after_message_sent: 累计已发送 {self._sent_count} 条")
+        """消息真正发出后触发（实现见 showcase/hooks.py）。"""
+        await self.hooks.after_message_sent(event)
 
-    # ------------------------------------------------------------------
-    # WebUI Page 的后端接口（pages/showcase/index.html 通过 bridge 调用）
-    # ------------------------------------------------------------------
-
-    async def api_ping(self):
-        """GET /ping：最小连通性示例。"""
-        if not self.enabled or "web_api" not in self.features:
-            return error_response(WEB_API_DISABLED, status_code=403)
-        return json_response({"message": "pong", "plugin": PLUGIN_NAME})
-
-    async def api_state(self):
-        """GET /state：插件运行状态，供 Page 展示。"""
-        if not self.enabled or "web_api" not in self.features:
-            return error_response(WEB_API_DISABLED, status_code=403)
-        return json_response(
-            {
-                "plugin_id": self.plugin_id,
-                "enabled": self.enabled,
-                "features": sorted(self.features),
-                "keywords": self.keywords,
-                "rules": len(self.rules),
-                "greeting_preview": self.greeting[:60],
-                "hook_counts": self._hook_counts,
-                "sent_count": self._sent_count,
-                "locales": sorted(p.stem for p in I18N_DIR.glob("*.json")),
-                "data_dir": str(self.data_dir),
-                "kv_last": await self.get_kv_data("last_kv", None),
-                "secret_configured": bool(self.config.get("api_token")),
-                "operator": request.username,
-            }
-        )
-
-    async def api_commands(self):
-        """GET /commands：列出本插件注册的指令与钩子。"""
-        if not self.enabled or "web_api" not in self.features:
-            return error_response(WEB_API_DISABLED, status_code=403)
-        items = [
-            {
-                "handler": md.handler_name,
-                "event_type": getattr(md.event_type, "name", str(md.event_type)),
-                "desc": (md.desc or "").splitlines()[0] if md.desc else "",
-            }
-            for md in star_handlers_registry
-            if md.handler_module_path == __name__
-        ]
-        return json_response({"count": len(items), "handlers": items})
-
-    async def api_kv(self):
-        """POST /kv：写入一条 KV 记录并回读，演示 bridge.apiPost。"""
-        if not self.enabled or "web_api" not in self.features:
-            return error_response(WEB_API_DISABLED, status_code=403)
-        if "storage" not in self.features:
-            return error_response("enabled_features 未勾选 storage", status_code=403)
-        payload = await request.json(default={}) or {}
-        record = {
-            "value": str(payload.get("value", ""))[:200],
-            "at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        await self.put_kv_data("last_kv", record)
-        return json_response({"stored": await self.get_kv_data("last_kv", None)})
+    # WebUI Page 的后端接口不在这里：它们不经过 star_handlers_registry，
+    # 可以放在子模块里（见 showcase/web_api.py，在 __init__ 里通过 register() 注册）。
