@@ -23,14 +23,21 @@ git clone https://github.com/lingyun14beta/helloworld astrbot_plugin_showcase
 astrbot_plugin_showcase/
 ├── main.py                        # 注册面：全部 @filter.* 装饰器、指令、Web API 注册
 ├── showcase/                      # 纯逻辑子包（不带装饰器，见下）
+│   ├── rules.py                   #   规则匹配与模糊匹配（不依赖 astrbot，可单测）
+│   ├── cron.py                    #   定时任务
 │   ├── push.py                    #   主动推送后台任务
 │   ├── wizard.py                  #   多轮会话状态机
-│   └── tools.py                   #   类式 FunctionTool
-├── metadata.yaml                  # 插件元数据（名称、版本、支持平台、版本约束）
+│   └── tools.py                   #   类式 FunctionTool（含后台任务型工具）
+├── skills/showcase-guide/         # 插件自带的 Skill（WebUI 里作为只读来源展示）
+├── tests/                         # pytest：纯逻辑单测 + 需要 AstrBot 的集成测试
+├── .github/workflows/ci.yml       # CI：ruff + pytest
+├── metadata.yaml                  # 插件元数据（名称、版本、支持平台、版本约束、市场标签）
 ├── _conf_schema.json              # WebUI 配置页的 Schema
 ├── .astrbot-plugin/i18n/          # 国际化文案（zh-CN / en-US / ja-JP）
 ├── pages/showcase/                # WebUI Page（index.html + app.js + style.css）
+├── logo.png                       # 插件卡片图标（256×256 占位图，可自行替换）
 ├── CHANGELOG.md                   # 更新日志（AstrBot 在插件详情页按 Markdown 渲染）
+├── pytest.ini
 ├── README.md
 └── LICENSE
 ```
@@ -56,8 +63,10 @@ astrbot_plugin_showcase/
 | `/showcase say <别名>` | `dict` 类型配置读取 |
 | `/showcase notes` | `file` 类型配置 + 插件数据目录 |
 | `/showcase ask <问题>` | `context.llm_generate` 直接调用模型 |
+| `/showcase pipeline <问题>` | `event.request_llm`：走正常会话管线（带人设/工具/历史） |
 | `/showcase agent <任务>` | `context.tool_loop_agent` 工具循环（模型自行调用工具） |
 | `/showcase tools [on\|off]` | 类式 `FunctionTool` 列表 + 运行时启用/停用 |
+| `/showcase history [n]` | `ConversationManager`：读取当前会话的历史消息 |
 | `/showcase card` | `Star.html_render` 渲染 HTML 为图片 |
 | `/showcase chain` | `At` / `Plain` 消息组件与消息链 |
 | `/showcase react` | `event.react()` 表情回应 |
@@ -66,6 +75,9 @@ astrbot_plugin_showcase/
 | `/showcase wizard` | `@session_waiter` 多轮会话（`/cancel` 可中止） |
 | `/showcase memo set\|get\|del` | 嵌套指令组 + `sp.session_*` 会话级状态（与插件 KV 对照） |
 | `/showcase push on\|off\|status` | 后台任务 + `context.send_message` 主动推送 |
+| `/showcase cron add\|list\|run\|del` | `context.cron_manager` 定时任务（cron 表达式排程） |
+| `/showcase extras <内容>` | `event.set_extra/get_extra`：挂在事件上，由钩子读出来 |
+| `/showcase stream` | `event.send_streaming` 分块发送（仅部分平台支持） |
 | `/showcase state` | KV 存储读写 + 钩子调用计数 |
 | `/showcase i18n [locale]` | 读取 `.astrbot-plugin/i18n` 文案 |
 | `/showcase-admin` | `permission_type(ADMIN)` 权限过滤 |
@@ -78,7 +90,8 @@ astrbot_plugin_showcase/
 `/showcase` 后面不带子指令时，AstrBot 会把整棵指令树连同每个子指令的参数类型打印出来，可以直接当帮助用。
 
 需要真机手测的几条：`/showcase agent`（要先配「演示用模型」，且模型得愿意调工具）、
-`/showcase push`（真的会往会话里推消息，记得 `push off`）、`/showcase-recall`（仅 QQ 生效）、
+`/showcase push`（真的会往会话里推消息，记得 `push off`）、`/showcase cron`（真的会按表达式推送）、
+`/showcase-recall`（仅 QQ 生效）、`/showcase stream`（仅 Telegram / QQ 官方私聊，aiocqhttp 走 fallback）、
 `/showcase react` / `/showcase typing`（平台支持度不一，不支持时插件会回一句提示而不是报错）。
 
 ## 二、配置页（WebUI 里试）
@@ -98,6 +111,9 @@ astrbot_plugin_showcase/
 | `keywords` | `list` | 自由列表（不设 `options`） |
 | `chat_provider_id` | `string` | `_special: select_provider`（Provider 选择器） |
 | `agent_instruction` | `text` | `editor_mode` + `editor_language`（Monaco 代码编辑器） |
+| `cron_expression` | `string` | 供 `/showcase cron add` 使用的默认表达式 |
+| `reply_prefix` | `string` | 非空时 `on_decorating_result` 真的改写消息链 |
+| `inject_context` | `bool` | 开启后 `on_llm_request` 注入临时上下文 |
 | `api_token` | `string` | `secret`（掩码显示）※ 纯演示，插件只回显「已配置／未配置」 |
 | `aliases` | `dict` | `template_schema` 预设键 |
 | `manual_files` | `file` | `file_types` 上传类型限制 |
@@ -211,20 +227,37 @@ astrbot_plugin_showcase/
   （记录在此避免误用）：`full_width`、`collapsed`（仅核心配置渲染器）、`items_type`（任何地方都不读）。
 - 插件自己声明的 `enabled`/`enabled_features` 是**插件逻辑**的开关，与 AstrBot 插件列表里的启用/停用无关；
   后者由 AstrBot 管理（`metadata.star_cls` 会被置空），此时指令组会静默不唤醒。
+- **本版本不建议插件使用、因此本插件没有演示的 API**（记录在此避免后来人踩坑）：
+  `register_agent` / handoff 子 agent —— 全仓库只有 `star_handler.py` 自身定义，没有任何内置插件、
+  文档或测试用过，触发链路不明，照抄很可能跑不起来；`context.get_db()`、`subagent_orchestrator`、
+  `kb_manager` 属于内部管理器，示例插件直接依赖会耦合内部实现（`get_db()` 还会把库表结构暴露给读者）；
+  `sp.global_*` 是跨插件全局键，容易鼓励滥用（README 说明用途即可）；已废弃的 `@register` 装饰器、
+  `load_config/put_config/update_config`、`context.register_task` 也不适合作为示例。
+- **`event.send_streaming` 的平台支持有限**（官方仅 Telegram 与 QQ 官方私聊，`use_fallback=True` 时
+  aiocqhttp 可用），其他平台调用不会报错但也不会有流式效果。
 
 ## 八、进阶扩展点
 
 前面几节偏「声明式」的扩展点，这一节是几个需要自己管状态的：
 
-### 子 agent 与工具循环（`showcase/tools.py` + `/showcase agent`）
+### 三种调用 LLM 的方式
 
-- `showcase/tools.py` 里的 `ShowcaseStatusTool` 是**类式** `FunctionTool`：手写 JSON Schema，
-  可以精确描述 `enum`、必填项，还能把插件实例存进字段里。它和 `@filter.llm_tool` 声明的
-  `showcase_echo` 一起出现在模型可用的工具列表里（`/showcase tools` 可以列出来看）。
-- `/showcase agent <任务>` 用 `context.tool_loop_agent(...)` 跑一个最多 3 步的工具循环，
-  让模型自己决定要不要调用工具 —— 与 `/showcase ask`（单次 `llm_generate`）形成对照。
+| 方式 | 入口 | 特点 |
+| --- | --- | --- |
+| `context.llm_generate` | `/showcase ask` | 直接调用指定 Provider，插件完全控制提示词与上下文 |
+| `event.request_llm` | `/showcase pipeline` | 交给 AstrBot 正常管线：带人设、工具、会话历史 |
+| `context.tool_loop_agent` | `/showcase agent` | 多步工具循环，模型自己决定调用哪些工具 |
+
+### 子 agent 与 LLM 工具（`showcase/tools.py` + `/showcase agent`）
+
+- `ShowcaseStatusTool` 是**类式** `FunctionTool`：手写 JSON Schema，可以精确描述 `enum`、必填项，
+  还能把插件实例存进字段里。它和 `@filter.llm_tool` 声明的 `showcase_echo` 一起出现在模型的工具列表里
+  （`/showcase tools` 可以列出来看）。
+- `ShowcaseSlowReportTool` 声明了 `is_background_task=True`：AstrBot 立刻把任务号还给模型，
+  真正的工作在后台跑，完成后带着结果重新唤醒主 agent；唤醒提示语用
+  `event.set_extra("background_note", ...)` 自定义。
 - `/showcase tools on|off` 演示运行时启停工具（`activate/deactivate_llm_tool_async`），
-  这是本插件版本下限的来源。
+  这是本插件版本下限（4.27.3）的来源。
 
 ### 多轮会话（`showcase/wizard.py` + `/showcase wizard`）
 
@@ -233,11 +266,51 @@ astrbot_plugin_showcase/
 所以向导进行中不会有别的插件或 LLM 插话。处理器用 `controller.keep()` 续下一轮、
 `controller.stop()` 结束，超时会抛 `TimeoutError`。本插件按配置动态创建 waiter，所以超时时间可调。
 
+### 定时任务（`showcase/cron.py` + `/showcase cron`）
+
+用 `context.cron_manager.add_basic_job(cron_expression=..., handler=..., payload=...)` 注册作业，
+到点推送到指定会话。两个约定要注意：**handler 是以 `handler(**payload)` 调用的**，所以参数名要和
+payload 的 key 对上；**handler 只在内存里**，`persistent=True` 的作业重启后还在数据库里但处理函数没了，
+需要在插件加载时重新注册（本示例用非持久化作业，避免这种空转）。
+
 ### 主动推送（`showcase/push.py` + `/showcase push`）
 
 `initialize()` 里 `asyncio.create_task` 起一个循环，`/showcase push on` 把当前会话的 umo 写进 KV，
 循环到点用 `context.send_message(umo, chain)` 主动发消息。**`terminate()` 里必须取消任务**，
 否则插件热重载会留下重复的推送循环 —— 这是后台任务类插件最容易踩的坑。
+如果只是"按固定时间点做事"，优先用上面的 cron，而不是自己写 sleep 循环。
+
+### 事件钩子不只是记日志
+
+`enabled_features` 勾选 `hooks` 后，大部分钩子只写日志（观察触发顺序用），但有两个按配置真的干活：
+
+- `on_llm_request`：设置 `inject_context` 后往每次请求追加一条**临时上下文**
+  （`extra_user_content_parts` + `mark_as_temp()`）—— 不写入历史、不破坏 system prompt 的缓存前缀，
+  比直接拼 `system_prompt` 更好。
+- `on_decorating_result`：设置 `reply_prefix` 后给所有回复加前缀；`/showcase extras <内容>`
+  挂在事件上的内容也会在这里被读出来追加（演示 `set_extra`/`get_extra` 跨 handler 传值）。
+
+### 插件自带的 Skill（`skills/showcase-guide/`）
+
+插件可以在自己目录下放 `skills/<名字>/SKILL.md`（或直接 `skills/SKILL.md`，名字取插件目录名），
+AstrBot 会把它纳入 Skill Manager，在 WebUI 的「插件 → 技能」里作为**只读来源**展示：可以启用/停用，
+但不能从本地 Skills 页编辑或删除，插件卸载/更新时随插件文件变化。本插件的 SKILL.md 写的是
+"这个插件有哪些能力、某个扩展点在哪实现"，用来演示插件如何把领域知识交给模型。
+
+### 测试与 CI（`tests/` + `.github/workflows/ci.yml`）
+
+- `tests/test_rules.py`：**纯逻辑单测**，只 import `showcase/rules.py`，不依赖 AstrBot，
+  所以在 CI 上直接跑（相似度口径、正则优先级、大小写敏感、无效正则这些最容易写错的地方都在这里回归）。
+- `tests/test_plugin.py`：**集成测试**，需要本机装好 AstrBot；没装（或装坏了）时整份文件跳过，
+  覆盖注册面、配置读取、i18n、各条指令的核心行为、向导状态机、cron 调用约定等。
+- CI 跑 `ruff check` + `ruff format --check` + `pytest`；集成测试在 CI 上自动跳过。
+
+本地跑：
+
+```bash
+ruff check . && ruff format --check .
+pytest                      # 纯逻辑测试必跑；集成测试视环境自动跳过
+```
 
 ### 状态作用域怎么选（`/showcase memo`）
 
