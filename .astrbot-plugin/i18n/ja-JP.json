@@ -138,6 +138,18 @@
     "agent_instruction": {
       "description": "サブエージェントの指示",
       "hint": "ツールループ（/showcase agent）で使う system prompt。空欄なら組み込みの例を使用します。"
+    },
+    "cron_expression": {
+      "description": "cron 式",
+      "hint": "/showcase cron add で引数を省略したときに使う式（分 時 日 月 曜日）。例：*/30 * * * * は 30 分ごと。"
+    },
+    "reply_prefix": {
+      "description": "返信のプレフィックス",
+      "hint": "設定すると on_decorating_result がすべての返信の先頭に付けます。フックが実際にメッセージチェーンを書き換えるデモです（空欄なら介入しません）。"
+    },
+    "inject_context": {
+      "description": "一時コンテキストを注入",
+      "hint": "オンにすると on_llm_request が毎回のリクエストに一時コンテキスト（時刻／セッション／プラットフォーム）を追加します。extra_user_content_parts + mark_as_temp のデモ（履歴に残らず、キャッシュも壊しません）。"
     }
   },
   "pages": {

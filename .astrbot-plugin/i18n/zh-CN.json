@@ -138,6 +138,18 @@
     "agent_instruction": {
       "description": "子 agent 指令",
       "hint": "工具循环（/showcase agent）使用的 system prompt，留空则用内置示例指令。"
+    },
+    "cron_expression": {
+      "description": "cron 表达式",
+      "hint": "/showcase cron add 不带参数时使用的表达式（分 时 日 月 周），例如 */30 * * * * 表示每 30 分钟。"
+    },
+    "reply_prefix": {
+      "description": "回复前缀",
+      "hint": "设置后 on_decorating_result 会给所有回复加上这个前缀，演示钩子真正改写消息链（留空则不干预）。"
+    },
+    "inject_context": {
+      "description": "注入临时上下文",
+      "hint": "开启后 on_llm_request 会往每次请求追加一条临时上下文（时间/会话/平台），演示 extra_user_content_parts + mark_as_temp（不写入历史、不破坏缓存）。"
     }
   },
   "pages": {

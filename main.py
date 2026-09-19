@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import asyncio
-import difflib
 import json
 import logging
 import re
@@ -27,23 +26,25 @@ import time
 from pathlib import Path
 from typing import Any
 
-from mcp.types import CallToolResult
-
 from astrbot.api import AstrBotConfig, ToolSet, logger, sp
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.message_components import At, Plain
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api.web import error_response, json_response, request
+from astrbot.core.agent.message import TextPart
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.star.star import star_map
 from astrbot.core.star.star_handler import star_handlers_registry
+from mcp.types import CallToolResult
 
+from .showcase.cron import CronDemo
 from .showcase.push import PushService
-from .showcase.tools import ShowcaseStatusTool
+from .showcase.rules import fuzzy_hit, invalid_regexes, match_reply
+from .showcase.tools import ShowcaseSlowReportTool, ShowcaseStatusTool
 from .showcase.wizard import ShowcaseWizard
 
 PLUGIN_NAME = "astrbot_plugin_showcase"
@@ -68,9 +69,10 @@ class PluginEnabledFilter(filter.CustomFilter):
 class FuzzyKeywordFilter(filter.CustomFilter):
     """模糊匹配过滤器：消息里能近似匹配到某个配置关键词时才放行。
 
-    判定用的是「关键词被消息覆盖的比例」而不是「整条消息与关键词的整体相似度」：
-    后者在带指令词的消息上会被稀释——例如 "/showcase-fuzzy" 与关键词 "showcase"
-    的整体相似度只有 0.70，永远达不到默认阈值 0.75，指令也就永远不会触发。
+    判定逻辑在 ``showcase/rules.py`` 的 :func:`fuzzy_hit` 里（纯函数，可单测）：
+    用的是「关键词被消息连续覆盖的比例」而不是「整条消息与关键词的整体相似度」，
+    后者在带指令词的消息上会被稀释 —— "/showcase-fuzzy" 与 "showcase" 只有 0.70，
+    永远达不到默认阈值 0.75，指令也就永远不会触发。
     """
 
     def filter(self, event: AstrMessageEvent, cfg: AstrBotConfig) -> bool:
@@ -78,18 +80,9 @@ class FuzzyKeywordFilter(filter.CustomFilter):
         plugin = metadata.star_cls if metadata else None
         if plugin is None:
             return False
-        text = event.get_message_str().strip().lower()
-        if not text:
-            return False
-        for keyword in plugin.keywords:
-            keyword = str(keyword).strip().lower()
-            if not keyword:
-                continue
-            matcher = difflib.SequenceMatcher(None, keyword, text)
-            matched = matcher.find_longest_match(0, len(keyword), 0, len(text)).size
-            if matched / len(keyword) >= plugin.similarity_threshold:
-                return True
-        return False
+        return fuzzy_hit(
+            plugin.keywords, event.get_message_str(), plugin.similarity_threshold
+        )
 
 
 class ShowcasePlugin(Star):
@@ -115,10 +108,18 @@ class ShowcasePlugin(Star):
         self.max_lines = int(advanced.get("max_lines", 10))
         self.strict_mode = bool(advanced.get("strict_mode", False))
 
-        # 新增演示项的配置：主动推送间隔、多轮会话超时、子 agent 指令。
+        # 新增演示项的配置：主动推送间隔、多轮会话超时、子 agent 指令、
+        # cron 表达式、回复前缀、是否注入临时上下文。
         self.push_interval = int(config.get("push_interval_seconds", 60))
         self.session_timeout_seconds = int(config.get("session_timeout_seconds", 30))
         self.agent_instruction = str(config.get("agent_instruction", "") or "")
+        self.cron_expression = str(config.get("cron_expression", "") or "*/30 * * * *")
+        self.reply_prefix = str(config.get("reply_prefix", "") or "")
+        self.inject_context = bool(config.get("inject_context", False))
+
+        # 规则里的无效正则在加载时检查一次，避免每条消息都重复尝试并刷日志。
+        for broken in invalid_regexes(self.rules):
+            logger.warning(f"{LOG} 正则规则无效，已跳过：{broken!r}")
 
         # 配置里的日志级别作用到插件自己的 logger。注意：AstrBot >= 4.26.8 才有插件
         # 专属 logger（名字形如 astrbot.plugin.<插件名>）；更低版本 astrbot.api.logger
@@ -137,13 +138,16 @@ class ShowcasePlugin(Star):
         self._hook_counts: dict[str, int] = {}
         self._sent_count = 0
 
-        # ---- 子模块里的三块有状态逻辑（装饰器全留在本文件，见 showcase/__init__.py 的说明）----
+        # ---- 子模块里的有状态逻辑（装饰器全留在本文件，见 showcase/__init__.py 的说明）----
         self.push = PushService(self)
         self.wizard = ShowcaseWizard(self)
+        self.cron = CronDemo(self)
         # 类式函数工具：手写 JSON Schema，注册进 context 维护的工具列表。
+        # 其中慢报告工具声明为 is_background_task，调用后立刻返回任务号。
         self.status_tool = ShowcaseStatusTool(plugin=self)
+        self.slow_tool = ShowcaseSlowReportTool(plugin=self)
         if "agent" in self.features:
-            context.add_llm_tools(self.status_tool)
+            context.add_llm_tools(self.status_tool, self.slow_tool)
 
         # ---- 注册 WebUI Page 用到的后端接口 ----
         # 路由必须带插件名前缀；插件页里 bridge.apiGet("state") 调用时不带前缀。
@@ -240,41 +244,15 @@ class ShowcasePlugin(Star):
     def _match_rules(self, text: str) -> str | None:
         """按配置里的 template_list 规则匹配消息文本。
 
+        算法在 ``showcase/rules.py`` 的 :func:`match_reply` 里（纯函数，可单测）。
+
         Args:
             text: 已去掉首尾空白的消息文本。
 
         Returns:
             命中的回复内容；没有规则命中时返回 None。
         """
-        # 正则规则按 priority 从高到低匹配；template_list 条目用 __template_key 区分模板。
-        regex_rules = sorted(
-            (r for r in self.rules if r.get("__template_key") == "regex"),
-            key=lambda r: int(r.get("priority", 0) or 0),
-            reverse=True,
-        )
-        for rule in regex_rules:
-            expression = str(rule.get("expression", "")).strip()
-            if not expression:
-                continue
-            try:
-                if re.search(expression, text):
-                    return str(rule.get("reply", "")).strip() or None
-            except re.error as exc:
-                logger.warning(f"{LOG} 正则规则无效 {expression!r}: {exc}")
-
-        for rule in self.rules:
-            if rule.get("__template_key") != "keyword":
-                continue
-            pattern = str(rule.get("pattern", "")).strip()
-            if not pattern:
-                continue
-            if rule.get("case_sensitive"):
-                hit = pattern in text
-            else:
-                hit = pattern.lower() in text.lower()
-            if hit:
-                return str(rule.get("reply", "")).strip() or None
-        return None
+        return match_reply(self.rules, text)
 
     # ------------------------------------------------------------------
     # 指令：指令组 / 子指令 / 别名 / 参数解析
@@ -322,6 +300,9 @@ class ShowcasePlugin(Star):
             f"advanced.strict_mode = {self.strict_mode}",
             f"advanced.rule_limit = {advanced.get('rule_limit')}（condition 字段，不参与逻辑）",
             f"advanced.debug_dump = {advanced.get('debug_dump')}（invisible 字段）",
+            f"cron_expression = {self.cron_expression}",
+            f"reply_prefix = {self.reply_prefix or '（未设置）'}",
+            f"inject_context = {self.inject_context}",
         ]
         # 行数超过 max_lines 时截断，并把截断本身也展示出来（这正是该字段的用途）。
         shown = lines[: self.max_lines]
@@ -349,6 +330,9 @@ class ShowcasePlugin(Star):
                 )
             else:
                 lines.append(f"[{key}] {rule}")
+        broken = invalid_regexes(self.rules)
+        if broken:
+            lines.append(f"⚠️ 无效正则（已跳过）：{broken}")
         yield event.plain_result("\n".join(lines))
 
     @showcase_group.command("say")
@@ -687,6 +671,117 @@ class ShowcasePlugin(Star):
         """启动两轮问答向导，演示 @session_waiter 多轮会话。"""
         await self.wizard.entry(event)
 
+    @showcase_group.command("pipeline")
+    async def showcase_pipeline(
+        self, event: AstrMessageEvent, prompt: GreedyStr
+    ) -> None:
+        """把问题交给 AstrBot 的正常会话管线，演示 event.request_llm()。
+
+        与 /showcase ask（llm_generate 直调）不同：这条路径会带上当前会话的人设、
+        工具与历史记录，等同于"用户正常说话时"的处理方式。
+
+        Args:
+            prompt: 要问的问题。
+        """
+        yield event.request_llm(prompt=str(prompt))
+
+    @showcase_group.command("history")
+    async def showcase_history(self, event: AstrMessageEvent, count: int = 5) -> None:
+        """读取当前会话的历史消息，演示 ConversationManager。
+
+        Args:
+            count: 最多显示几条，默认 5。
+        """
+        umo = event.unified_msg_origin
+        conversation_id = (
+            await self.context.conversation_manager.get_curr_conversation_id(umo)
+        )
+        if not conversation_id:
+            yield event.plain_result("当前会话还没有对话记录（先聊两句再来）。")
+            return
+        (
+            rows,
+            total,
+        ) = await self.context.conversation_manager.get_human_readable_context(
+            umo, conversation_id, page=1, page_size=max(1, min(count, self.max_lines))
+        )
+        body = "\n".join(rows) or "（没有可读记录）"
+        yield event.plain_result(
+            f"会话 {conversation_id[:8]}… 共 {total} 条，最近 {len(rows)} 条：\n{body}"
+        )
+
+    @showcase_group.command("extras")
+    async def showcase_extras(self, event: AstrMessageEvent, note: GreedyStr) -> None:
+        """往当前事件上挂一条 extra，演示 event.set_extra/get_extra。
+
+        extra 挂在事件对象上，同一次事件里的其它 handler（这里是 on_decorating_result）
+        能读到它 —— 这是插件之间、插件内部 handler 之间传递信息的方式。
+
+        Args:
+            note: 要挂上去的内容。
+        """
+        event.set_extra("showcase_note", str(note))
+        yield event.plain_result(
+            f"已把 {note!r} 挂到本次事件上，稍后 on_decorating_result 会读出来。"
+        )
+
+    @showcase_group.command("stream")
+    async def showcase_stream(self, event: AstrMessageEvent) -> None:
+        """分块发送消息，演示 event.send_streaming()（仅部分平台支持）。"""
+
+        async def chunks():
+            for index in range(1, 4):
+                yield MessageChain().message(f"流式第 {index}/3 块…")
+                await asyncio.sleep(0.6)
+
+        try:
+            await event.send_streaming(chunks(), use_fallback=True)
+        except Exception as exc:
+            yield event.plain_result(f"当前平台不支持流式发送：{exc}")
+            return
+        yield event.plain_result(
+            "流式发送结束（官方支持 Telegram、QQ 官方私聊；aiocqhttp 走 fallback）。"
+        )
+
+    @showcase_group.group("cron")
+    def showcase_cron_group(self) -> None:
+        """定时任务指令组，演示 context.cron_manager。"""
+
+    @showcase_cron_group.command("add")
+    async def showcase_cron_add(
+        self, event: AstrMessageEvent, expression: str = ""
+    ) -> None:
+        """注册一个 cron 作业，到点往当前会话推送消息。
+
+        Args:
+            expression: cron 表达式（分 时 日 月 周），留空则用配置里的 cron_expression。
+        """
+        cron_expression = expression.strip() or self.cron_expression
+        job_id = await self.cron.add(event.unified_msg_origin, cron_expression)
+        yield event.plain_result(
+            f"已注册作业 {job_id[:8]}…（{cron_expression}）。\n"
+            "用 /showcase cron list 查看，/showcase cron run 立刻触发一次。"
+        )
+
+    @showcase_cron_group.command("list")
+    async def showcase_cron_list(self, event: AstrMessageEvent) -> None:
+        """列出本插件注册的 cron 作业。"""
+        yield event.plain_result(await self.cron.describe())
+
+    @showcase_cron_group.command("run")
+    async def showcase_cron_run(self, event: AstrMessageEvent) -> None:
+        """立刻触发一次已注册的作业。"""
+        if not await self.cron.run_now():
+            yield event.plain_result("还没有作业，先 /showcase cron add。")
+            return
+        yield event.plain_result("已触发，稍等一下会收到推送。")
+
+    @showcase_cron_group.command("del")
+    async def showcase_cron_del(self, event: AstrMessageEvent) -> None:
+        """删除本插件注册的作业。"""
+        deleted = await self.cron.delete()
+        yield event.plain_result("作业已删除。" if deleted else "没有可删除的作业。")
+
     # ------------------------------------------------------------------
     # 顶层指令：过滤器演示
     # ------------------------------------------------------------------
@@ -861,12 +956,25 @@ class ShowcasePlugin(Star):
     async def on_llm_request(
         self, event: AstrMessageEvent, req: ProviderRequest
     ) -> None:
-        """每次 LLM 请求前触发；可在此改写 req.system_prompt 等字段。"""
+        """每次 LLM 请求前触发；开启 inject_context 后往请求里注入一条临时上下文。
+
+        用 ``extra_user_content_parts`` + ``mark_as_temp()`` 而不是拼 ``system_prompt``：
+        临时片段不会写进历史，也不破坏 system prompt 的缓存前缀。
+        """
         if not self._hook("on_llm_request"):
             return
+        if self.inject_context:
+            req.extra_user_content_parts.append(
+                TextPart(
+                    text=(
+                        f"[showcase] 当前时间 {time.strftime('%Y-%m-%d %H:%M:%S')}，"
+                        f"会话 {event.unified_msg_origin}，平台 {event.get_platform_name()}。"
+                    )
+                ).mark_as_temp()
+            )
         logger.debug(
             f"{LOG} on_llm_request: prompt={len(req.prompt or '')} 字, "
-            f"contexts={len(req.contexts or [])}"
+            f"contexts={len(req.contexts or [])}, 临时片段={len(req.extra_user_content_parts)}"
         )
 
     @filter.on_llm_response()
@@ -921,15 +1029,24 @@ class ShowcasePlugin(Star):
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent) -> None:
-        """消息发送前触发；event.get_result().chain 可在此增删消息组件。"""
+        """消息发送前触发；这里真正改写消息链（不只是记日志）。
+
+        两件事：按配置给所有回复加前缀；把 /showcase extras 挂在事件上的内容追加出来
+        （演示同一次事件里不同 handler 之间用 set_extra/get_extra 传信息）。
+        """
         if not self._hook("on_decorating_result"):
             return
         result = event.get_result()
         if result is None or not result.chain:
             return
+        if self.reply_prefix:
+            result.chain.insert(0, Plain(self.reply_prefix))
+        note = event.get_extra("showcase_note")
+        if note:
+            result.chain.append(Plain(f"\n（event extra：{note}）"))
         logger.debug(
-            f"{LOG} on_decorating_result: {len(result.chain)} 个组件"
-            "（如需加前缀：result.chain.insert(0, Plain(...))）"
+            f"{LOG} on_decorating_result: 处理后 {len(result.chain)} 个组件"
+            f"（prefix={bool(self.reply_prefix)}, extra={bool(note)}）"
         )
 
     @filter.after_message_sent()

@@ -12,14 +12,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
-
-from pydantic import Field
-from pydantic.dataclasses import dataclass
 
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
+from pydantic import Field
+from pydantic.dataclasses import dataclass
 
 
 @dataclass
@@ -71,3 +71,59 @@ class ShowcaseStatusTool(FunctionTool[AstrAgentContext]):
             f"已启用的演示项：{sorted(self.plugin.features)}；"
             f"已加载消息规则：{len(self.plugin.rules)} 条。"
         )
+
+
+@dataclass
+class ShowcaseSlowReportTool(FunctionTool[AstrAgentContext]):
+    """后台任务型工具：耗时工作丢到后台，立刻把任务号还给模型。
+
+    ``is_background_task=True`` 时 AstrBot 不会等工具跑完（见
+    ``core/astr_agent_tool_exec.py`` 的 ``_execute_background``）：它立刻把
+    ``Background task submitted. task_id=...`` 返回给模型，真正的执行在后台任务里进行，
+    完成后 AstrBot 会带着结果重新唤醒主 agent。唤醒时的提示语可以用
+    ``event.set_extra("background_note", ...)`` 自定义 —— 这里就这么做了。
+    """
+
+    name: str = "showcase_slow_report"
+    description: str = (
+        "生成一份需要等待若干秒的报告，用于演示耗时的后台任务：调用后立即返回任务号，"
+        "完成后结果会回到对话里。当用户要求生成报告或明确要求演示后台任务时调用。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "seconds": {
+                    "type": "integer",
+                    "description": "模拟的工作耗时（秒），默认 5，范围 1~60",
+                }
+            },
+            "required": [],
+        }
+    )
+    is_background_task: bool = True
+    plugin: Any = None
+
+    async def call(
+        self, context: ContextWrapper[AstrAgentContext], **kwargs: Any
+    ) -> ToolExecResult:
+        """执行工具（运行在后台任务里）。
+
+        Args:
+            context: Agent 运行上下文，由 AstrBot 传入；``context.context.event``
+                是触发这次对话的事件。
+            **kwargs: 模型给出的参数，这里只用到 seconds。
+
+        Returns:
+            完成后的报告文本，会被回填给被重新唤醒的主 agent。
+        """
+        seconds = max(1, min(60, int(kwargs.get("seconds") or 5)))
+        # 自定义后台任务完成时的唤醒提示（AstrBot 会读这个 extra）
+        try:
+            context.context.event.set_extra(
+                "background_note", f"后台报告已生成（耗时 {seconds} 秒）"
+            )
+        except Exception:  # 拿不到 event 时不影响任务本身
+            pass
+        await asyncio.sleep(seconds)
+        return f"报告生成完成：等待了 {seconds} 秒，当前 {self.plugin.hook_counters_text()}。"

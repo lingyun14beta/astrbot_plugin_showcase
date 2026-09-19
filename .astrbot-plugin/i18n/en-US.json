@@ -138,6 +138,18 @@
     "agent_instruction": {
       "description": "Sub-agent instruction",
       "hint": "System prompt used by the tool loop (/showcase agent); empty means the built-in example instruction."
+    },
+    "cron_expression": {
+      "description": "Cron expression",
+      "hint": "Expression used by /showcase cron add when no argument is given (minute hour day month weekday), e.g. */30 * * * * for every 30 minutes."
+    },
+    "reply_prefix": {
+      "description": "Reply prefix",
+      "hint": "When set, on_decorating_result prepends it to every reply, demonstrating a hook that really rewrites the message chain (empty means no interference)."
+    },
+    "inject_context": {
+      "description": "Inject temporary context",
+      "hint": "When on, on_llm_request appends one temporary context part (time / session / platform) to every request, demonstrating extra_user_content_parts + mark_as_temp (not stored in history, does not break the cache)."
     }
   },
   "pages": {

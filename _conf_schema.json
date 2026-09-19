@@ -77,6 +77,24 @@
     "editor_language": "markdown",
     "default": ""
   },
+  "cron_expression": {
+    "description": "cron 表达式",
+    "hint": "/showcase cron add 不带参数时使用的表达式（分 时 日 月 周），例如 */30 * * * * 表示每 30 分钟。",
+    "type": "string",
+    "default": "*/30 * * * *"
+  },
+  "reply_prefix": {
+    "description": "回复前缀",
+    "hint": "设置后 on_decorating_result 会给所有回复加上这个前缀，演示钩子真正改写消息链（留空则不干预）。",
+    "type": "string",
+    "default": ""
+  },
+  "inject_context": {
+    "description": "注入临时上下文",
+    "hint": "开启后 on_llm_request 会往每次请求追加一条临时上下文（时间/会话/平台），演示 extra_user_content_parts + mark_as_temp（不写入历史、不破坏缓存）。",
+    "type": "bool",
+    "default": false
+  },
   "api_token": {
     "description": "演示密钥",
     "hint": "演示 secret 字段：输入框会掩码显示，但存储仍是明文，不要填真实凭据。需 WebUI ≥ 4.28.0，否则会渲染成普通文本框。",
