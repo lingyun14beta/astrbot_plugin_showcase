@@ -7,6 +7,9 @@ short_desc: 一个插件看懂 AstrBot 插件能做什么 # 插件市场卡片�
 version: v1.0.0 # 版本号，格式 v1.1.1 或 v1.1
 author: lingyun14beta
 repo: https://github.com/lingyun14beta/astrbot_plugin_showcase # 插件仓库地址；缺失时 AstrBot 无法检查更新
+# 【市场侧字段】仅插件市场（cloud.astrbot.app）读取，AstrBot 本体不解析——详见 README「已知边界」。
+# 与 tags 不同，它连本地 WebUI 也读不到：详情页「作者网站」只认市场接口返回的 social_link。
+social_link: https://github.com/lingyun14beta
 astrbot_version: ">=4.27.3" # PEP 440 版本范围；当前 AstrBot 不满足时会被阻止加载
 # 下限依据（用 git 历史逐个 API 反查，括号内为该 API 最早出现的版本）：
 #   【决定下限】context.activate_llm_tool_async —— 4.27.3（/showcase tools on|off 的运行时开关）

@@ -47,7 +47,7 @@ astrbot_plugin_showcase/
 ├── skills/showcase-guide/         # 插件自带的 Skill（WebUI 里作为只读来源展示）
 ├── tests/                         # pytest：纯逻辑单测 + 需要 AstrBot 的集成测试
 ├── .github/workflows/ci.yml       # CI：ruff + pytest
-├── metadata.yaml                  # 插件元数据（名称、版本、支持平台、版本约束、市场标签）
+├── metadata.yaml                  # 插件元数据（名称、版本、支持平台、版本约束、市场标签与链接）
 ├── _conf_schema.json              # WebUI 配置页的 Schema
 ├── .astrbot-plugin/i18n/          # 国际化文案（zh-CN / en-US / ja-JP）
 ├── pages/showcase/                # WebUI Page（index.html + app.js + style.css）
@@ -164,7 +164,7 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 
 ### 版本要求：core 与 WebUI 是两条线
 
-插件在 `metadata.yaml` 里声明了 **core 侧**的下限（`astrbot_version: ">=4.24.1"`，依据见该文件注释）。
+插件在 `metadata.yaml` 里声明了 **core 侧**的下限（`astrbot_version: ">=4.27.3"`，依据见该文件注释）。
 但**配置页的渲染由 WebUI 资产决定，跟 core 版本可以不一致**——WebUI 旧了不会报错，只是某些修饰键被忽略、字段降级渲染。
 下表是 `_conf_schema.json` 里每个能力的前端引入版本与降级表现：
 
@@ -250,6 +250,14 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 
 - `metadata.yaml` 里的 `pages:` 字段目前不会被 Dashboard 读取，页面完全由 `pages/<页面名>/index.html`
   目录扫描发现，因此本插件没有声明它。
+- `social_link` 是**市场侧字段**，AstrBot 本体（4.28.1）完全不解析它：`StarMetadata` 没有这个字段
+  （`astrbot/core/star/star.py:24-76`），插件详情接口也只序列化 `StarMetadata` 上有的字段
+  （`astrbot/dashboard/services/plugin_service.py:637-659`）。详情页那个「作者网站」读的是
+  `plugin.social_link || marketPlugin.social_link || plugin.author_url || ... || homepage`
+  （`dashboard/src/views/ExtensionPage.vue:216-240` 用 repo 把已安装插件匹配到市场条目，
+  再传给 `PluginDetailPage.vue:169-181`），所以只有**上架插件市场后**才会显示；
+  本地手装（`git clone` 到 `data/plugins`）时这一行写了也不显示。`author_url`、`homepage`
+  同理，它们不是 `metadata.yaml` 的字段，只有市场接口会返回。
 - 页面 iframe 的沙箱不允许访问 Dashboard 的 cookie / localStorage；资源必须写**相对路径**，
   绝对路径（如 `/app.js`）不会被重写、会 404。
 - `secret` 字段只是显示层掩码（且需 WebUI ≥ 4.28.0），值始终明文存储，不要填真实凭据。
