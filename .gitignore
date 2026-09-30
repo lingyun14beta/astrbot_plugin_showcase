@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# AstrBot 运行时产物：本地跑测试/探针时，若 cwd 落在插件目录，AstrBot 会在这里写配置、数据库与渲染模板
+/data/
+
 # C extensions
 *.so
 

@@ -33,6 +33,7 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.star.star import star_map
 
+from . import platform_demo
 from .showcase.cron import CronDemo
 from .showcase.hooks import ShowcaseHooks
 from .showcase.push import PushService
@@ -234,6 +235,21 @@ class ShowcasePlugin(Star):
             命中的回复内容；没有规则命中时返回 None。
         """
         return match_reply(self.rules, text)
+
+    def _fake_platform(self) -> platform_demo.ShowcaseFakePlatform | None:
+        """取回插件注册的假平台实例。
+
+        ``context.get_platform`` 按 ``meta().name`` 查找**已实例化**的平台
+        （只传字符串时，见 astrbot/core/star/context.py:778-782）；实例只有在 WebUI 里
+        建好这条平台配置并启用后才会存在，所以这里必须容忍 None。
+
+        Returns:
+            假平台实例；尚未创建/启用时返回 None。
+        """
+        platform = self.context.get_platform(platform_demo.ADAPTER_NAME)
+        if isinstance(platform, platform_demo.ShowcaseFakePlatform):
+            return platform
+        return None
 
     # ------------------------------------------------------------------
     # 指令：指令组 / 子指令 / 别名 / 参数解析
@@ -762,6 +778,78 @@ class ShowcasePlugin(Star):
         """删除本插件注册的作业。"""
         deleted = await self.cron.delete()
         yield event.plain_result("作业已删除。" if deleted else "没有可删除的作业。")
+
+    # ------------------------------------------------------------------
+    # 平台适配器（插件注册的假平台，实现在 platform_demo.py）
+    # ------------------------------------------------------------------
+
+    @showcase_group.group("adapter")
+    def showcase_adapter_group(self) -> None:
+        """插件注册的平台适配器指令组，演示 @register_platform_adapter。"""
+
+    @showcase_adapter_group.command("status")
+    async def showcase_adapter_status(self, event: AstrMessageEvent) -> None:
+        """报告假平台适配器的注册状态，以及实例为什么还没出现。"""
+        registered = platform_demo.is_registered()
+        platform = self._fake_platform()
+        lines = [
+            f"适配器 {platform_demo.ADAPTER_NAME} 已注册到 platform_registry：{registered}",
+            f"平台实例：{'已创建（' + platform.meta().id + '）' if platform else '还没有'}",
+        ]
+        if platform is None:
+            lines += [
+                "",
+                "要让实例出现，去 WebUI 的「机器人」页新建一个：",
+                f"  1. 消息平台类别 选 “Showcase Fake Platform”（{platform_demo.ADAPTER_NAME}）",
+                "  2. 随便填 token，保存时把「启用」打开",
+                "  3. 保存后会触发 on_platform_loaded 钩子（见 /showcase state 的计数）",
+                "注意：这条平台配置属于 AstrBot 核心配置，不是本插件的配置。",
+            ]
+        else:
+            lines += [
+                f"机器人标识：{platform.bot_name}",
+                "用 /showcase adapter inject <文本> 注入一条消息，"
+                "/showcase adapter log 查看它发出去的内容。",
+            ]
+        yield event.plain_result("\n".join(lines))
+
+    @showcase_adapter_group.command("inject")
+    async def showcase_adapter_inject(
+        self, event: AstrMessageEvent, text: GreedyStr
+    ) -> None:
+        """往假平台注入一条假的私聊消息，让它走一遍完整管线。
+
+        Args:
+            text: 消息内容。填 `/showcase hello` 这类指令可以只走指令、不调用模型。
+        """
+        platform = self._fake_platform()
+        if platform is None:
+            yield event.plain_result(
+                "假平台还没有实例：先按 /showcase adapter status 的提示在 WebUI 里创建。"
+            )
+            return
+        content = text.strip()
+        if not content:
+            yield event.plain_result("用法：/showcase adapter inject <文本>")
+            return
+        umo = platform.inject(content)
+        yield event.plain_result(
+            f"已注入并交给事件队列：{umo}\n"
+            "它会被当成这个假平台的私聊消息走完整管线（私聊默认不需要唤醒前缀，"
+            "因此普通文本会触发模型）。\n"
+            "回复由假平台“发出”，用 /showcase adapter log 查看。"
+        )
+
+    @showcase_adapter_group.command("log")
+    async def showcase_adapter_log(self, event: AstrMessageEvent) -> None:
+        """查看假平台“发出”的消息（内存环形缓冲，最多 20 条）。"""
+        platform = self._fake_platform()
+        if platform is None:
+            yield event.plain_result(
+                "假平台还没有实例：先按 /showcase adapter status 的提示在 WebUI 里创建。"
+            )
+            return
+        yield event.plain_result(platform.outbox_text())
 
     # ------------------------------------------------------------------
     # 顶层指令：过滤器演示

@@ -29,6 +29,7 @@ description: AstrBot Showcase 插件的能力导览。当用户询问 AstrBot �
 | 主动推送（后台 asyncio 循环） | `/showcase push on\|off\|status` | `showcase/push.py` |
 | 会话级状态 vs 插件级状态 | `/showcase memo set\|get\|del` | `main.py` |
 | 消息规则（template_list） | `/showcase rules` | `showcase/rules.py` |
+| 插件注册的平台适配器（假平台） | `/showcase adapter status\|inject\|log` | `platform_demo.py` |
 | WebUI Page 与后端接口 | 插件详情页里的「能力展示」 | `pages/showcase/`、`main.py` |
 | 更新日志约定 | 插件详情页的「更新日志」 | `CHANGELOG.md` |
 
@@ -43,3 +44,6 @@ description: AstrBot Showcase 插件的能力导览。当用户询问 AstrBot �
 - **装饰器必须写在插件主模块**（`main.py`）：AstrBot 会用 `star_map[handler.handler_module_path]`
   直接索引元数据，放到子模块会让钩子静默失效。子包里只放不带装饰器的逻辑。
 - **插件自带 Skill 放在 `skills/<名字>/SKILL.md`**，在 WebUI 里作为只读来源展示，不能从本地 Skills 页编辑。
+- **插件能往「消息平台类别」里加一项，但不能替用户建机器人实例**：注册靠 `@register_platform_adapter`
+  （`import` 期执行，无法用配置开关关闭），而创建实例走的是 WebUI 那套核心配置 + `platform_manager.load_platform`，
+  插件侧没有对应的公开 API。本插件的 `showcase_fake` 就是这个演示，假平台不连接任何外部服务。

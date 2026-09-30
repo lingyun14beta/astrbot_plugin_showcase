@@ -36,6 +36,7 @@ git clone https://github.com/lingyun14beta/astrbot_plugin_showcase
 ```
 astrbot_plugin_showcase/
 ├── main.py                        # 注册面：全部 @filter.* 装饰器（一行委托）+ 指令 + 装配
+├── platform_demo.py               # 插件注册的平台适配器（假平台，见「进阶扩展点」）
 ├── showcase/                      # 子包
 │   ├── rules.py                   #   规则匹配与模糊匹配（不依赖 astrbot，可单测）
 │   ├── hooks.py                   #   14 个钩子的实现
@@ -80,7 +81,9 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 **可以随便拆的**：Web API handler（只登记在 `Context.registered_web_apis` 这个普通列表里，
 不经过 `star_handlers_registry`，见 `showcase/web_api.py`）、类式 LLM 工具
 （`_resolve_tool_handler_module_path` 会把子模块路径归一化到插件主模块，工具归属仍然正确）、
-以及所有纯逻辑与状态机。
+平台适配器（`@register_platform_adapter` 按 `cls.__module__` 记录路径，注销时按前缀匹配，
+放子包也能被正确清理 —— 本插件仍把它放根目录，理由是 `logo_path` 的相对路径，
+见「插件提供的平台适配器」）、以及所有纯逻辑与状态机。
 
 其中 `CHANGELOG.md` 也是 AstrBot 认的约定：插件详情页会读插件目录下的更新日志文件
 （依次尝试 `CHANGELOG.md` → `changelog.md` → `CHANGELOG` → `changelog`，见
@@ -110,6 +113,7 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 | `/showcase memo set\|get\|del` | 嵌套指令组 + `sp.session_*` 会话级状态（与插件 KV 对照） |
 | `/showcase push on\|off\|status` | 后台任务 + `context.send_message` 主动推送 |
 | `/showcase cron add\|list\|run\|del` | `context.cron_manager` 定时任务（cron 表达式排程） |
+| `/showcase adapter status\|inject\|log` | 插件注册的平台适配器（假平台）：状态、注入消息、查看它发出的内容 |
 | `/showcase extras <内容>` | `event.set_extra/get_extra`：挂在事件上，由钩子读出来 |
 | `/showcase stream` | `event.send_streaming` 分块发送（仅部分平台支持） |
 | `/showcase state` | KV 存储读写 + 钩子调用计数 |
@@ -269,6 +273,16 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
   （记录在此避免误用）：`full_width`、`collapsed`（仅核心配置渲染器）、`items_type`（任何地方都不读）。
 - 插件自己声明的 `enabled`/`enabled_features` 是**插件逻辑**的开关，与 AstrBot 插件列表里的启用/停用无关；
   后者由 AstrBot 管理（`metadata.star_cls` 会被置空），此时指令组会静默不唤醒。
+- **平台适配器的注册无法用配置开关关掉**：`@register_platform_adapter` 在 `import` 期执行，那时插件配置还没读到，
+  所以只要本插件被加载，WebUI 的「消息平台类别」里就会有 `showcase_fake` 这一项（配置页需要重新拉取才刷新）。
+  插件重载/卸载时会按模块路径前缀注销（`astrbot/core/platform/register.py:66-91`、
+  `astrbot/core/star/star_manager.py:815`），此时已建好的平台实例会变成"找不到适配器"的悬空配置，需要手动删掉。
+- 平台适配器只解决"**提供一种新平台**"；替用户建实例没有插件 API —— WebUI 走的是
+  `config_service.create_bot`（改全局配置 → `save_config` → `platform_manager.load_platform`，
+  `astrbot/dashboard/services/config_service.py:1432-1441`）。*理论*上插件也能这么干
+  （`context.get_config()` 拿全局配置、`context.platform_manager` 是真实的管理器对象），
+  但 `load_platform` / `reload` / `terminate_platform` 不在 `PlatformManagerProtocol` 的声明里
+  （`astrbot/core/star/context.py:118-120`），属于内部实现，不要依赖。
 - **本版本不建议插件使用、因此本插件没有演示的 API**（记录在此避免后来人踩坑）：
   `register_agent` / handoff 子 agent —— 全仓库只有 `star_handler.py` 自身定义，没有任何内置插件、
   文档或测试用过，触发链路不明，照抄很可能跑不起来；`context.get_db()`、`subagent_orchestrator`、
@@ -321,6 +335,43 @@ payload 的 key 对上；**handler 只在内存里**，`persistent=True` 的作�
 循环到点用 `context.send_message(umo, chain)` 主动发消息。**`terminate()` 里必须取消任务**，
 否则插件热重载会留下重复的推送循环 —— 这是后台任务类插件最容易踩的坑。
 如果只是"按固定时间点做事"，优先用上面的 cron，而不是自己写 sleep 循环。
+
+### 插件提供的平台适配器（`platform_demo.py` + `/showcase adapter`）
+
+插件可以接入 AstrBot 官方适配器之外的平台（官方文档：`docs/zh/dev/plugin-platform-adapter.md`）。
+本插件用 `showcase_fake` 这个"假平台"演示注册链路 —— 它不连接任何外部服务：
+
+1. `@register_platform_adapter(...)` 把类写进 `platform_registry`（`astrbot/core/platform/register.py:58`）；
+2. Dashboard 生成配置元数据时遍历这张表，把 `default_config_tmpl` 并进
+   `platform_group.metadata.platform.config_template`（`astrbot/dashboard/services/config_service.py:982-998`），
+   而 WebUI「创建机器人 → 消息平台类别」下拉框读的正是它
+   （`dashboard/src/components/platform/AddNewPlatform.vue:965-970`）—— 所以**加载本插件后，那个下拉框里会多出
+   「Showcase Fake Platform」**；
+3. 在 WebUI 里选中它、填好参数保存（记得打开「启用」），核心才实例化并 `run()`
+   （`astrbot/core/platform/manager.py:218`，顺便会触发本插件的 `on_platform_loaded` 钩子）。
+
+装饰器参数里的几个"演示点"：
+
+| 参数 | 作用 |
+| --- | --- |
+| `default_config_tmpl` | 表单预填值；`type` / `enable` / `id` 会被自动补上（`register.py:35-41`），`enable` 默认 `False` |
+| `config_metadata` | 决定表单长什么样；不提供就退化成裸键值对编辑框。字段会并进**所有适配器共用**的 `items` 表，命名别太通用 |
+| `i18n_resources` | 表单文案的多语言；给了它之后 `config_metadata` 里的 `description`/`hint`/`labels` 会被替换成 i18n key（`config_service.py:1106-1129`） |
+| `logo_path` | 相对**适配器类所在文件**的目录解析（`config_service.py:1057-1059`），所以本模块放在插件根目录，写 `logo.png` 即可 |
+| `support_streaming_message` | 假平台不支持真流式，声明为 `False` |
+
+拿到实例后（`context.get_platform("showcase_fake")`，按 `meta().name` 查，见 `astrbot/core/star/context.py:778-782`）：
+
+- `/showcase adapter status` —— 报告是否已注册、实例是否已创建，没创建时给出 WebUI 操作步骤；
+- `/showcase adapter inject <文本>` —— 造一条假的私聊消息丢进事件队列，让它走完整管线。
+  私聊默认不需要唤醒前缀（`core/pipeline/waking_check/stage.py:152-159`），所以普通文本会真的调用模型；
+  想省 token 就注入 `/showcase hello` 这类指令；
+- `/showcase adapter log` —— 看假平台"发出"的消息（`send()` 把回复记进内存环形缓冲，真实适配器在这里调平台 SDK）。
+
+这个 API 本身很老（`register_platform_adapter` 自 **v3.4.0** 就有），但几个装饰器参数是后加的：
+`logo_path` 要 4.3.0、`support_proactive_message` 要 4.14.1、`config_metadata` 与 `i18n_resources`
+要 **4.16.0**（按各 tag 的发布日期逐个反查）。本插件的 `astrbot_version` 下限（`>=4.27.3`）已经覆盖，
+不需要为它调整。
 
 ### 事件钩子不只是记日志
 

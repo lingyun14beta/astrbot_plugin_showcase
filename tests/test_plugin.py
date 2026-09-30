@@ -21,7 +21,10 @@ from pathlib import Path
 import pytest
 
 try:  # 没装 AstrBot（或装坏了）时整份文件跳过，纯逻辑测试仍在 tests/test_rules.py 里跑
+    from astrbot.api.event import MessageChain
+    from astrbot.api.message_components import Plain
     from astrbot.core.config.astrbot_config import AstrBotConfig
+    from astrbot.core.platform.register import platform_registry
     from astrbot.core.star.star import star_map
     from astrbot.core.star.star_handler import star_handlers_registry
 except Exception as exc:  # noqa: BLE001 - 任何导入失败都视为"环境不具备"
@@ -32,7 +35,9 @@ except Exception as exc:  # noqa: BLE001 - 任何导入失败都视为"环境不
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT.parent))
 MODULE = importlib.import_module(f"{PLUGIN_ROOT.name}.main")
+PLATFORM_MODULE = importlib.import_module(f"{PLUGIN_ROOT.name}.platform_demo")
 MODULE_NAME = MODULE.__name__
+FAKE_ADAPTER = PLATFORM_MODULE.ADAPTER_NAME
 
 SCHEMA = json.loads((PLUGIN_ROOT / "_conf_schema.json").read_text(encoding="utf-8-sig"))
 ALL_FEATURES = ["hooks", "llm_tool", "web_api", "storage", "message", "agent", "push"]
@@ -92,9 +97,14 @@ class FakeContext:
         self.tools: list = []
         self.calls: list[tuple[str, str]] = []
         self.outgoing: list[str] = []
+        self.platforms: dict[str, object] = {}
         self.manager = types.SimpleNamespace(func_list=[])
         self.cron_manager = FakeCronManager()
         self.conversation_manager = FakeConversationManager()
+
+    def get_platform(self, platform_type):
+        """只按平台类型（meta().name）查找，和真实 Context 的字符串分支一致。"""
+        return self.platforms.get(platform_type)
 
     def register_web_api(self, route, handler, methods, desc):
         self.web_apis.append(route)
@@ -590,3 +600,103 @@ def test_card使用本地路径渲染():
     # 用本地路径而不是渲染端点 URL：平台不一定能访问后者
     assert captured["return_url"] is False
     assert str(out[0]) == "IMAGE:/tmp/fake.png"
+
+
+# ---------------- 插件自带的平台适配器（platform_demo.py） ----------------
+
+
+def test_假平台适配器已注册进平台注册表():
+    assert MODULE.platform_demo.is_registered() is True
+    entry = next(meta for meta in platform_registry if meta.name == FAKE_ADAPTER)
+    tmpl = entry.default_config_tmpl
+    # register_platform_adapter 自动补齐的三个键：type / enable / id
+    assert tmpl["type"] == FAKE_ADAPTER
+    assert tmpl["id"] == FAKE_ADAPTER
+    assert tmpl["enable"] is False, "默认不启用：实例建好后还要手动打开"
+    assert entry.adapter_display_name == "Showcase Fake Platform"
+    assert entry.logo_path == "logo.png"
+    assert entry.support_streaming_message is False
+    assert set(entry.config_metadata) == {"token", "bot_name"}
+    assert entry.config_metadata["token"]["secret"] is True
+    assert entry.i18n_resources["en-US"]["bot_name"]["hint"]
+    # 注销靠模块路径前缀匹配，必须落在本插件目录下
+    assert entry.module_path.startswith(PLUGIN_ROOT.name)
+
+
+def test_假平台能注入消息并记录发出的内容():
+    async def flow():
+        queue: asyncio.Queue = asyncio.Queue()
+        adapter = PLATFORM_MODULE.ShowcaseFakePlatform(
+            {
+                "id": FAKE_ADAPTER,
+                "type": FAKE_ADAPTER,
+                "enable": True,
+                "token": "demo-token",
+                "bot_name": "demo-bot",
+            },
+            {},
+            queue,
+        )
+        assert adapter.meta().name == FAKE_ADAPTER
+        assert adapter.meta().id == FAKE_ADAPTER
+
+        # run() 是平台主循环：核心会把它包成 task，这里验证 terminate() 能让它正常退出
+        task = asyncio.create_task(adapter.run())
+        await asyncio.sleep(0)
+
+        umo = adapter.inject("hello")
+        assert umo == f"{FAKE_ADAPTER}:FriendMessage:showcase-user"
+        event = queue.get_nowait()
+        assert event.message_str == "hello"
+        assert event.message_obj.self_id == "demo-bot"
+        assert event.get_sender_id() == "showcase-user"
+
+        # 事件“发消息”= 适配器把内容记下来（真实适配器在这里调平台 SDK）
+        await event.send(MessageChain([Plain(text="pong")]))
+        assert "pong" in adapter.outbox_text()
+
+        await adapter.terminate()
+        await asyncio.wait_for(task, timeout=1)
+        assert adapter.injected == 1
+
+    asyncio.run(flow())
+
+
+def test_adapter指令在实例缺失时给出创建指引():
+    plugin, context = build()
+    assert context.platforms == {}
+    out = str(collect(plugin.showcase_adapter_status(FakeEvent()))[0])
+    assert "平台实例：还没有" in out
+    assert "消息平台类别" in out
+    for handler, args in (
+        (plugin.showcase_adapter_inject, ("你好",)),
+        (plugin.showcase_adapter_log, ()),
+    ):
+        assert "假平台还没有实例" in str(collect(handler(FakeEvent(), *args))[0])
+
+
+def test_adapter指令在实例存在时正常工作():
+    plugin, context = build()
+    adapter = PLATFORM_MODULE.ShowcaseFakePlatform(
+        {"id": FAKE_ADAPTER, "type": FAKE_ADAPTER, "enable": True}, {}, asyncio.Queue()
+    )
+    context.platforms[FAKE_ADAPTER] = adapter
+
+    status = str(collect(plugin.showcase_adapter_status(FakeEvent()))[0])
+    assert "平台实例：已创建（showcase_fake）" in status
+
+    injected = str(
+        collect(plugin.showcase_adapter_inject(FakeEvent(), "/showcase hello"))[0]
+    )
+    assert f"{FAKE_ADAPTER}:FriendMessage:showcase-user" in injected
+    assert adapter.injected == 1
+
+    log = str(collect(plugin.showcase_adapter_log(FakeEvent()))[0])
+    assert "还没发出过消息" in log
+
+
+def test_adapter指令找不到第三方平台实例时不误判():
+    plugin, context = build()
+    context.platforms[FAKE_ADAPTER] = types.SimpleNamespace(meta=lambda: None)
+    out = str(collect(plugin.showcase_adapter_status(FakeEvent()))[0])
+    assert "平台实例：还没有" in out

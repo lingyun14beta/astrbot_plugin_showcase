@@ -6,6 +6,29 @@
 >
 > 约定：发版时让 `metadata.yaml` 的 `version` 与本文档最新一节的标题一致。
 
+## v1.1.0
+
+新增「插件注册平台适配器」演示：一个不连接外部服务的假平台 `showcase_fake`。
+
+### 新增
+
+- **平台适配器**（`platform_demo.py`）：`@register_platform_adapter` 注册新平台类型，配置里演示
+  `default_config_tmpl` / `config_metadata`（表单字段）/ `i18n_resources`（表单文案多语言）/ `logo_path`
+  （插件目录内的图标）/ `support_streaming_message`；实现 `Platform` 的 `__init__` / `run` / `meta`
+  与消息事件子类 `AstrMessageEvent.send()`
+- **指令**：`/showcase adapter status`（注册与实例状态 + WebUI 创建步骤）、
+  `/showcase adapter inject <文本>`（造一条假私聊消息走完整管线）、`/showcase adapter log`（查看假平台"发出"的内容）
+- **测试**：注册表内容、`type`/`enable`/`id` 自动补齐、注入与 send 回环、`terminate()` 让 `run()` 正常退出、
+  实例缺失/存在两种状态下的指令输出
+
+### 说明
+
+- 只要插件被加载，WebUI「创建机器人 → 消息平台类别」里就会出现 `Showcase Fake Platform`；
+  注册发生在 `import` 期，**没有配置开关能关掉它**，插件重载/卸载时随模块注销（README「已知边界」有说明）
+- 假平台实例默认 `enable: False`：在 WebUI 里建好后还要打开「启用」才真正 `run()`
+- 这个 API 本身不需要抬高版本下限（`register_platform_adapter` 自 v3.4.0 就有，`logo_path` 4.3.0、
+  `config_metadata` / `i18n_resources` 4.16.0），`astrbot_version` 仍是 `>=4.27.3`
+
 ## v1.0.0
 
 由 [helloworld 模板](https://github.com/Soulter/helloworld) 改写为「AstrBot 插件能力全景示例」：一个插件把所有扩展点各演示一遍。
