@@ -1,4 +1,6 @@
-// 插件页前端：只通过 window.AstrBotPluginPage（bridge）与插件后端通信。
+// 插件页前端：只通过 bridge 与插件后端通信。
+// 4.29 起 bridge 的首选名是 window.AstrBotPluginView；window.AstrBotPluginPage 是它的别名
+// （astrbot/dashboard/plugin_page_bridge.js:293），本页用旧名以兼容 4.27/4.28。
 //
 // 页面运行在 Dashboard 的受限 iframe 里，拿不到 Dashboard 的 cookie / localStorage，
 // 因此所有请求都交给父页面以它自己的身份转发（见 README 的说明）。
