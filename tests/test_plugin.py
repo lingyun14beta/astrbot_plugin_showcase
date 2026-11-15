@@ -22,7 +22,7 @@ import pytest
 
 try:  # 没装 AstrBot（或装坏了）时整份文件跳过，纯逻辑测试仍在 tests/test_rules.py 里跑
     from astrbot.api.event import MessageChain
-    from astrbot.api.message_components import Plain
+    from astrbot.api.message_components import ActionRow, Button, Plain
     from astrbot.core.config.astrbot_config import AstrBotConfig
     from astrbot.core.platform.register import platform_registry
     from astrbot.core.star.star import star_map
@@ -158,6 +158,18 @@ class FakeEvent:
         self.request_kwargs: dict = {}
         self.message_obj = types.SimpleNamespace(message_id=12345)
         self._result = types.SimpleNamespace(chain=[])
+        self._interaction = None
+
+    def set_button_interaction(
+        self, action_id: str, data=None, message_id: str = "m-1"
+    ):
+        self._interaction = types.SimpleNamespace(
+            action_id=action_id,
+            data=data,
+            interaction_id="i-1",
+            source_message_id=message_id,
+        )
+        return self
 
     def get_message_str(self) -> str:
         return self._text
@@ -170,6 +182,12 @@ class FakeEvent:
 
     def image_result(self, url_or_path):
         return f"IMAGE:{url_or_path}"
+
+    def chain_result(self, chain):
+        return {"chain": list(chain)}
+
+    def get_button_interaction(self):
+        return self._interaction
 
     def set_extra(self, key, value):
         self.extras[key] = value
@@ -315,7 +333,7 @@ def test_读取配置与默认值():
     assert plugin.cooldown_seconds == 5
     assert plugin.session_timeout_seconds == 30
     assert plugin.push_interval == 60
-    assert plugin.max_lines == 20
+    assert plugin.max_lines == 25
     assert plugin.cron_expression == "*/30 * * * *"
     assert plugin.reply_prefix == ""
     assert plugin.inject_context is False
@@ -323,12 +341,14 @@ def test_读取配置与默认值():
 
 def test_配置摘要行数与截断():
     plugin, _ = build()
-    plugin.config["advanced"]["max_lines"] = 20
-    plugin.max_lines = 20
+    plugin.config["advanced"]["max_lines"] = 25
+    plugin.max_lines = 25
     full = str(collect(plugin.showcase_config(FakeEvent()))[0])
     assert "已截断" not in full
     assert "advanced.rule_limit" in full
     assert "cron_expression" in full
+    assert "demo_umo" in full and "demo_sender" in full
+    assert "advanced.collapsed" in full
 
     plugin, _ = build()
     plugin.config["advanced"]["max_lines"] = 5
@@ -700,3 +720,72 @@ def test_adapter指令找不到第三方平台实例时不误判():
     context.platforms[FAKE_ADAPTER] = types.SimpleNamespace(meta=lambda: None)
     out = str(collect(plugin.showcase_adapter_status(FakeEvent()))[0])
     assert "平台实例：还没有" in out
+
+
+# ---------------- 交互按钮（feat/buttons 分支） ----------------
+
+
+def test_button指令发的是四种样式加回调链接():
+    plugin, _ = build()
+    chain = collect(plugin.showcase_button(FakeEvent()))[0]["chain"]
+    assert isinstance(chain[0], Plain)
+
+    rows = [item for item in chain if isinstance(item, ActionRow)]
+    assert len(rows) == 2
+
+    # 第一排：四种样式各一个，全部是回调按钮
+    styles = [button.style for button in rows[0].buttons]
+    assert styles == [
+        Button.Style.DEFAULT,
+        Button.Style.PRIMARY,
+        Button.Style.SUCCESS,
+        Button.Style.DANGER,
+    ]
+    for button in rows[0].buttons:
+        assert button.id.startswith(MODULE.BUTTON_ACTION_STYLE_PREFIX)
+        assert isinstance(button.action, Button.CallbackAction)
+        assert button.action.data == {"style": button.style.value}
+
+    # 第二排：回调 + 链接，带有效期与回退文案
+    assert rows[1].action_timeout == MODULE.BUTTON_TIMEOUT_SECONDS
+    assert rows[1].fallback_text
+    assert [button.id for button in rows[1].buttons] == [
+        MODULE.BUTTON_ACTION_CONFIRM,
+        MODULE.BUTTON_ACTION_DOCS,
+    ]
+    assert isinstance(rows[1].buttons[0].action, Button.CallbackAction)
+    assert rows[1].buttons[0].action.data == {"demo": True}
+    assert isinstance(rows[1].buttons[1].action, Button.UrlAction)
+    assert rows[1].buttons[1].action.url.startswith("https://")
+
+
+def test_button回显action_id与data():
+    plugin, _ = build()
+    event = FakeEvent().set_button_interaction(
+        MODULE.BUTTON_ACTION_CONFIRM, {"demo": True}
+    )
+    out = str(collect(plugin.showcase_button_confirm(event))[0])
+    assert MODULE.BUTTON_ACTION_CONFIRM in out
+    assert "'demo': True" in out
+    assert "m-1" in out
+
+
+def test_button回调缺数据时不炸():
+    plugin, _ = build()
+    out = str(collect(plugin.showcase_button_confirm(FakeEvent()))[0])
+    assert "没有收到按钮回调数据" in out
+
+
+def test_通配按钮处理器只认本插件的样式前缀():
+    plugin, _ = build()
+    hit = FakeEvent().set_button_interaction(
+        f"{MODULE.BUTTON_ACTION_STYLE_PREFIX}danger", {"style": "danger"}
+    )
+    out = str(collect(plugin.showcase_button_style(hit))[0])
+    assert "danger" in out and "showcase:style:danger" in out
+
+    # 别的插件/核心的按钮：静默忽略（不能抢答）
+    other = FakeEvent().set_button_interaction("other_plugin:ok", {"x": 1})
+    assert collect(plugin.showcase_button_style(other)) == []
+    # 没有交互数据时同样静默
+    assert collect(plugin.showcase_button_style(FakeEvent())) == []

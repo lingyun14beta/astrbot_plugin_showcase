@@ -6,6 +6,47 @@
 >
 > 约定：发版时让 `metadata.yaml` 的 `version` 与本文档最新一节的标题一致。
 
+## v1.4.0
+
+把 4.29 新增的「配置页能力」也补齐：样式按钮、`subtitles`、`_special: umo` / `sender_id`、`collapsed`。
+
+### 新增
+
+- **四种按钮样式**：`/showcase button` 改成两排——第一排 `default` / `primary` / `success` / `danger` 各一个
+  （共用 `@filter.button_action()` 通配处理器，按 `showcase:style:` 前缀过滤），第二排是原来的「确认 / 文档」
+- **`subtitles`**（WebUI 4.29.1+）：`log_level` 的四个下拉选项各带一句副标题
+- **`_special: umo`**（4.29.4+）：`demo_umo`，配置页弹「选择会话来源」，保存完整 UMO 字符串
+- **`_special: sender_id`**（4.29.4+）：`demo_sender`，配置页弹「选择用户」，保存用户 ID 列表
+- **`collapsed: true`**（4.30 线，PR #11067）：`advanced` 分组默认收起；4.29.4 上会被忽略
+- `/showcase config` 回显这三个新字段（`demo_umo` / `demo_sender` / `advanced.collapsed`），摘要从 18 行变成 21 行
+- 文档：按钮小节补「四种样式 × 各平台映射」表、通配处理器与 ID 唯一性说明；配置表、4.29 能力表同步
+
+### 说明
+
+- 新增的三个 Schema 能力都是**只演示、不参与逻辑**，值只在 `/showcase config` 回显
+- `collapsed` 属于未发版的 4.30 线，写进 Schema 不会影响 4.29.4 的渲染（该键被忽略）
+- 版本下限仍是 `>=4.29.4`（交互按钮），`dev` 分支继续维持 `>=4.27.3`
+
+## v1.3.0
+
+新增「交互按钮」演示（`feat/buttons` 分支）：`/showcase button` 发一排按钮，`@filter.button_action` 收点击。
+
+### 新增
+
+- **指令**：`/showcase button` —— 一个回调按钮（`showcase:confirm`）+ 一个链接按钮（文档），带 `action_timeout=120`
+  与 `fallback_text`
+- **回调**：`@filter.button_action("showcase:confirm")` handler，回复里回显 `action_id` / `data` / `source_message_id`，
+  演示 `event.get_button_interaction()` 的用法
+- **文档**：README 新增「交互按钮」小节（组件用法、过期语义、各平台支持度、QQ 官方的 5×5 与 1024 字节限制）
+- **测试**：消息链里确实是 `ActionRow` + 两个 `Button`（含超时与回退文案）、回调 handler 的输出内容
+
+### 说明
+
+- **本分支 `astrbot_version` 从 `>=4.27.3` 抬到 `>=4.29.4`**：交互按钮是 4.29.4 才加的能力，4.27/4.28 上无法加载
+- `dev` 分支保持 `>=4.27.3` 且不含按钮演示，两条线功能其余部分一致
+- 平台支持度：QQ 官方机器人 / Telegram / 飞书 / 钉钉 / Discord / Slack / LINE / KOOK / Satori / 企业微信 / WebChat 支持回调；
+  OneBot v11、Misskey、公众号、微信个人号只做文字回退
+
 ## v1.2.0
 
 对齐 AstrBot **4.29.4**（master 上已含未发版的 4.30 线改动）核对一遍文档结论：代码不用改，改的是过期的说法。

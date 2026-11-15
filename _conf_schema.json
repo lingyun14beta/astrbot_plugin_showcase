@@ -17,6 +17,12 @@
     "type": "string",
     "options": ["debug", "info", "warning", "error"],
     "labels": ["调试", "信息", "警告", "错误"],
+    "subtitles": [
+      "输出全部调试日志，排查用",
+      "默认级别",
+      "只记录警告与错误",
+      "只记录错误"
+    ],
     "default": "info"
   },
   "cooldown_seconds": {
@@ -102,6 +108,20 @@
     "secret": true,
     "default": ""
   },
+  "demo_umo": {
+    "description": "演示：选择会话来源",
+    "hint": "演示 _special: umo —— 4.29.4 起配置页会弹出「选择会话来源」，保存完整 UMO 字符串。本插件只回显、不发送；需 WebUI ≥ 4.29.4，否则退化成文本框。",
+    "type": "string",
+    "_special": "umo",
+    "default": ""
+  },
+  "demo_sender": {
+    "description": "演示：选择用户",
+    "hint": "演示 _special: sender_id —— 4.29.4 起配置页会弹出「选择用户」，保存用户 ID 列表。本插件只回显；需 WebUI ≥ 4.29.4，否则退化成普通列表编辑。",
+    "type": "list",
+    "_special": "sender_id",
+    "default": []
+  },
   "aliases": {
     "description": "自定义别名",
     "hint": "键值对：/showcase say <别名> 会回复对应的内容。需 WebUI ≥ 4.10.4 才有预设键编辑器。",
@@ -135,13 +155,15 @@
   "advanced": {
     "description": "高级设置",
     "type": "object",
+    "collapsed": true,
+    "hint": "演示 collapsed：4.30 线（master）起这个分组默认收起；4.29.4 及以前会忽略该键、正常展开。",
     "items": {
       "max_lines": {
         "description": "输出最大行数",
-        "hint": "限制 /showcase config 与 /showcase notes 的输出长度；摘要共 15 行，设成更小的值就能看到截断提示。",
+        "hint": "限制 /showcase config 与 /showcase notes 的输出长度；摘要共 21 行，设成更小的值就能看到截断提示。",
         "type": "int",
         "slider": { "min": 1, "max": 50, "step": 1 },
-        "default": 20
+        "default": 25
       },
       "strict_mode": {
         "description": "严格模式",

@@ -28,7 +28,7 @@ from typing import Any
 
 from astrbot.api import AstrBotConfig, ToolSet, logger, sp
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
-from astrbot.api.message_components import At, Plain
+from astrbot.api.message_components import ActionRow, At, Button, Plain
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.star.star import star_map
@@ -45,6 +45,12 @@ from .showcase.wizard import ShowcaseWizard
 PLUGIN_NAME = "astrbot_plugin_showcase"
 LOG = "[showcase]"
 I18N_DIR = Path(__file__).resolve().parent / ".astrbot-plugin" / "i18n"
+
+# 交互按钮（AstrBot >= 4.29.4）：按钮 ID 建议带插件名前缀，避免和其他插件/核心按钮撞车。
+BUTTON_ACTION_CONFIRM = "showcase:confirm"
+BUTTON_ACTION_DOCS = "showcase:docs"
+BUTTON_ACTION_STYLE_PREFIX = "showcase:style:"
+BUTTON_TIMEOUT_SECONDS = 120.0
 
 
 class PluginEnabledFilter(filter.CustomFilter):
@@ -293,7 +299,10 @@ class ShowcasePlugin(Star):
             f"manual_files = {self.config.get('manual_files') or []}",
             f"chat_provider_id = {self.config.get('chat_provider_id') or '（未配置）'}",
             f"api_token = {'已配置' if self.config.get('api_token') else '未配置'}（secret 字段）",
+            f"demo_umo = {self.config.get('demo_umo') or '（未选）'}（_special: umo）",
+            f"demo_sender = {self.config.get('demo_sender') or []}（_special: sender_id）",
             f"advanced.max_lines = {self.max_lines}",
+            f"advanced.collapsed = {advanced.get('collapsed')}（4.30 线才生效）",
             f"advanced.strict_mode = {self.strict_mode}",
             f"advanced.rule_limit = {advanced.get('rule_limit')}（condition 字段，不参与逻辑）",
             f"advanced.debug_dump = {advanced.get('debug_dump')}（invisible 字段）",
@@ -427,6 +436,51 @@ class ShowcasePlugin(Star):
             ),
         ]
         yield event.chain_result(chain)
+
+    @showcase_group.command("button")
+    async def showcase_button(self, event: AstrMessageEvent) -> None:
+        """发送两排交互按钮，演示 ActionRow / Button 的四种样式（需 AstrBot >= 4.29.4）。"""
+        yield event.chain_result(
+            [
+                Plain("四种样式（点一下看回调）："),
+                # 第一排：四种 Style 各一个，点哪个都会进 showcase_button_style
+                ActionRow(
+                    buttons=[
+                        Button(
+                            id=f"{BUTTON_ACTION_STYLE_PREFIX}{style.value}",
+                            label=label,
+                            action=Button.CallbackAction(data={"style": style.value}),
+                            style=style,
+                        )
+                        for label, style in (
+                            ("默认", Button.Style.DEFAULT),
+                            ("主要", Button.Style.PRIMARY),
+                            ("成功", Button.Style.SUCCESS),
+                            ("危险", Button.Style.DANGER),
+                        )
+                    ],
+                    fallback_text="当前平台不支持按钮，请直接发送 /showcase hello",
+                ),
+                # 第二排：回调按钮 + 链接按钮，带有效期
+                ActionRow(
+                    buttons=[
+                        Button(
+                            id=BUTTON_ACTION_CONFIRM,
+                            label="确认",
+                            action=Button.CallbackAction(data={"demo": True}),
+                            style=Button.Style.PRIMARY,
+                        ),
+                        Button(
+                            id=BUTTON_ACTION_DOCS,
+                            label="文档",
+                            action=Button.UrlAction(url="https://docs.astrbot.app"),
+                        ),
+                    ],
+                    action_timeout=BUTTON_TIMEOUT_SECONDS,
+                    fallback_text="当前平台不支持按钮，请直接发送 /showcase hello",
+                ),
+            ]
+        )
 
     @showcase_group.command("state")
     async def showcase_state(self, event: AstrMessageEvent) -> None:
@@ -867,6 +921,49 @@ class ShowcasePlugin(Star):
     async def showcase_admin(self, event: AstrMessageEvent) -> None:
         """仅管理员可用，演示 permission_type 过滤器。"""
         yield event.plain_result("你是管理员，这条指令只有管理员能触发。")
+
+    # ------------------------------------------------------------------
+    # 交互按钮回调（AstrBot >= 4.29.4）
+    # ------------------------------------------------------------------
+
+    @filter.button_action(BUTTON_ACTION_CONFIRM)
+    async def showcase_button_confirm(self, event: AstrMessageEvent) -> None:
+        """只处理 `showcase:confirm` 这个按钮的点击。
+
+        注意两点：
+        - 按钮点击是**独立事件**，不会触发 `/showcase` 指令，也不会走唤醒前缀判断；
+        - 过滤器已经保证 `get_button_interaction()` 非空，这里仍然判空是为了演示用法。
+        """
+        interaction = event.get_button_interaction()
+        if interaction is None:
+            yield event.plain_result("没有收到按钮回调数据。")
+            return
+        yield event.plain_result(
+            f"收到按钮回调：action_id={interaction.action_id}\n"
+            f"data={interaction.data}\n"
+            f"来源消息={interaction.source_message_id or '（平台未提供）'}\n"
+            "按钮点完仍留在原消息里；同一排按钮的有效期由 action_timeout 决定。"
+        )
+
+    @filter.button_action()
+    async def showcase_button_style(self, event: AstrMessageEvent) -> None:
+        """通配回调：`@filter.button_action()` 不写 ID 时匹配**所有**按钮。
+
+        第一排「样式预览」的四个按钮共用这一个处理器，所以先按 ID 前缀过滤；
+        其他插件/核心的按钮点击也会进到这里，直接 `return` 忽略即可 ——
+        不调用 `event.stop_event()`，其它处理器照常执行。
+        """
+        interaction = event.get_button_interaction()
+        if interaction is None or not interaction.action_id.startswith(
+            BUTTON_ACTION_STYLE_PREFIX
+        ):
+            return
+        style_name = interaction.action_id.removeprefix(BUTTON_ACTION_STYLE_PREFIX)
+        yield event.plain_result(
+            f"样式按钮回调：{interaction.action_id}\n"
+            f"样式 = {style_name}，data = {interaction.data}\n"
+            "注意：QQ 官方把 danger 映射成默认灰，Telegram/LINE 不显示颜色。"
+        )
 
     @filter.command("showcase-platform")
     @filter.platform_adapter_type(filter.PlatformAdapterType.ALL)

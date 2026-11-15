@@ -21,6 +21,12 @@
         "信息",
         "警告",
         "错误"
+      ],
+      "subtitles": [
+        "输出全部调试日志，排查用",
+        "默认级别",
+        "只记录警告与错误",
+        "只记录错误"
       ]
     },
     "cooldown_seconds": {
@@ -92,7 +98,8 @@
       "debug_dump": {
         "description": "内部调试转储",
         "hint": "演示 invisible 字段：不在 WebUI 显示，但配置文件里仍然保留；打开后 /showcase config 会多打印一行。"
-      }
+      },
+      "hint": "演示 collapsed：4.30 线（master）起这个分组默认收起；4.29.4 及以前会忽略该键、正常展开。"
     },
     "rules": {
       "description": "消息规则",
@@ -150,6 +157,14 @@
     "inject_context": {
       "description": "注入临时上下文",
       "hint": "开启后 on_llm_request 会往每次请求追加一条临时上下文（时间/会话/平台），演示 extra_user_content_parts + mark_as_temp（不写入历史、不破坏缓存）。"
+    },
+    "demo_umo": {
+      "description": "演示：选择会话来源",
+      "hint": "演示 _special: umo —— 4.29.4 起配置页会弹出「选择会话来源」，保存完整 UMO 字符串。本插件只回显、不发送；需 WebUI ≥ 4.29.4，否则退化成文本框。"
+    },
+    "demo_sender": {
+      "description": "演示：选择用户",
+      "hint": "演示 _special: sender_id —— 4.29.4 起配置页会弹出「选择用户」，保存用户 ID 列表。本插件只回显；需 WebUI ≥ 4.29.4，否则退化成普通列表编辑。"
     }
   },
   "pages": {

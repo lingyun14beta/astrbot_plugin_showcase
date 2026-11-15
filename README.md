@@ -5,8 +5,9 @@ AstrBot 插件能力全景示例：**一个插件，把所有扩展点各演示�
 它由官方 [helloworld 模板](https://github.com/Soulter/helloworld) 改造而来，除了保留原来的 `/helloworld` 指令，
 其余内容全部用来演示「AstrBot 插件到底能做什么」——配置页、钩子、国际化、WebUI Page、LLM 工具、持久化存储。
 
-> 适用版本：AstrBot `>=4.27.3`（`metadata.yaml` 的 `astrbot_version`，下限由 `/showcase tools on|off`
-> 用到的 `activate_llm_tool_async` 决定；注释里列了每个 API 的引入版本）。
+> 适用版本：AstrBot `>=4.29.4`。`metadata.yaml` 的 `astrbot_version` 注释列了每个 API 的引入版本；
+> 本分支为了演示**交互按钮**（`filter.button_action`，4.29.4 才加）把下限从 4.27.3 抬了上来。
+> 只用 4.27.3 的话切到 `dev` 分支，功能一样、只是没有 `/showcase button`。
 
 ## 适合谁
 
@@ -112,6 +113,7 @@ AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__m
 | `/showcase history [n]` | `ConversationManager`：读取当前会话的历史消息 |
 | `/showcase card` | `Star.html_render` 渲染 HTML 为图片（实现在 `core/star/base.py:104`，另有 `context.html_renderer` 可直接调用） |
 | `/showcase chain` | `At` / `Plain` 消息组件与消息链 |
+| `/showcase button` | 交互按钮：两排（四种样式 + 回调/链接），`ActionRow` / `Button` + `@filter.button_action` 回调 |
 | `/showcase react` | `event.react()` 表情回应 |
 | `/showcase typing` | `event.send_typing()` / `stop_typing()` |
 | `/showcase silent <文本>` | `event.should_call_llm(False)` 拦截 LLM |
@@ -146,7 +148,7 @@ AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__m
 | --- | --- | --- |
 | `enabled` | `bool` | 用 `custom_filter` 做整组指令总开关 |
 | `greeting` | `text` | 多行文本 |
-| `log_level` | `string` | `options` + `labels`（下拉框） |
+| `log_level` | `string` | `options` + `labels` + `subtitles`（4.29.1 起支持选项副标题） |
 | `cooldown_seconds` | `int` | `slider` |
 | `push_interval_seconds` | `int` | `slider`（主动推送间隔） |
 | `session_timeout_seconds` | `int` | `slider`（多轮会话每步超时） |
@@ -159,9 +161,11 @@ AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__m
 | `reply_prefix` | `string` | 非空时 `on_decorating_result` 真的改写消息链 |
 | `inject_context` | `bool` | 开启后 `on_llm_request` 注入临时上下文 |
 | `api_token` | `string` | `secret`（掩码显示）※ 纯演示，插件只回显「已配置／未配置」 |
+| `demo_umo` | `string` | `_special: umo`（4.29.4：选会话来源）※ 仅回显 |
+| `demo_sender` | `list` | `_special: sender_id`（4.29.4：选用户）※ 仅回显 |
 | `aliases` | `dict` | `template_schema` 预设键 |
 | `manual_files` | `file` | `file_types` 上传类型限制 |
-| `advanced` | `object` | 嵌套 `items`、`condition` 条件显示、`invisible` 隐藏项 |
+| `advanced` | `object` | 嵌套 `items`、`condition` 条件显示、`invisible` 隐藏项、`collapsed: true`（4.30 线默认收起） |
 | `rules` | `template_list` | `templates`、`display_item`、`hide_hint_in_list`、模板内多种字段 |
 
 其中两个字段**只用于演示 Schema 修饰键、不参与任何逻辑**，hint 里已写明：
@@ -174,7 +178,7 @@ AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__m
 
 ### 版本要求：core 与 WebUI 是两条线
 
-插件在 `metadata.yaml` 里声明了 **core 侧**的下限（`astrbot_version: ">=4.27.3"`，依据见该文件注释）。
+插件在 `metadata.yaml` 里声明了 **core 侧**的下限（本分支 `astrbot_version: ">=4.29.4"`，因为要用交互按钮；`dev` 分支是 `>=4.27.3`；依据见该文件注释）。
 但**配置页的渲染由 WebUI 资产决定，跟 core 版本可以不一致**——WebUI 旧了不会报错，只是某些修饰键被忽略、字段降级渲染。
 下表是 `_conf_schema.json` 里每个能力的前端引入版本与降级表现：
 
@@ -191,14 +195,14 @@ AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__m
 | `labels` | `log_level` | 3.4.27 | 下拉显示英文原值 |
 | `invisible` | `advanced.debug_dump` | 3.4.2 | 隐藏项会显示出来 |
 
-4.29 起又加了一批配置页/页面能力，**本插件的 Schema 还没有使用**（列在这里便于以后按需加）：
+4.29 起又加了一批配置页/页面能力，本分支也都演示了（`views/` 那几项属于页面而不是 Schema）：
 
-| 能力 | WebUI 引入版本 | 说明 |
+| 能力 | WebUI 引入版本 | 本插件用在哪 |
 | --- | --- | --- |
-| `views/` 目录 / `window.AstrBotPluginView` / `views.<名字>.*` 文案 | 4.29.0 | `pages/`、`pages.<名字>.*`、`window.AstrBotPluginPage` 都保留为别名 |
-| `subtitles` | 4.29.1 | 下拉选项的副标题，按索引与 `options` 对应 |
-| `_special: umo` / `_special: sender_id` | 4.29.4 | 打开「选择会话来源」/「选择用户」弹窗，存 UMO 或用户 ID |
-| `collapsed: true` | **未发版（4.30 线）** | `object` 分组默认收起；4.29.4 及以前会被忽略 |
+| `views/` 目录 / `window.AstrBotPluginView` / `views.<名字>.*` 文案 | 4.29.0 | **未迁移**：仍用 `pages/` + 旧 bridge 名，兼容 4.27/4.28（迁移方法见第三节） |
+| `subtitles` | 4.29.1 | `log_level` 的下拉副标题 |
+| `_special: umo` / `_special: sender_id` | 4.29.4 | `demo_umo`（选会话来源）/ `demo_sender`（选用户），值只在 `/showcase config` 回显 |
+| `collapsed: true` | **未发版（4.30 线）** | `advanced` 分组默认收起；4.29.4 及以前忽略该键、正常展开 |
 
 凡是「缺失会明显影响使用」的（≥ 4.10 的那几项），对应字段的 `hint` 里也写了「需 WebUI ≥ x.y.z」，
 这样在旧 WebUI 上打开配置页时能直接看到原因。更新 WebUI 到与 core 同版本即可全部恢复
@@ -401,8 +405,51 @@ payload 的 key 对上；**handler 只在内存里**，`persistent=True` 的作�
 
 这个 API 本身很老（`register_platform_adapter` 自 **v3.4.0** 就有），但几个装饰器参数是后加的：
 `logo_path` 要 4.3.0、`support_proactive_message` 要 4.14.1、`config_metadata` 与 `i18n_resources`
-要 **4.16.0**（按各 tag 的发布日期逐个反查）。本插件的 `astrbot_version` 下限（`>=4.27.3`）已经覆盖，
+要 **4.16.0**（按各 tag 的发布日期逐个反查）。本插件的 `astrbot_version` 下限（`>=4.29.4`）已经覆盖，
 不需要为它调整。
+
+### 交互按钮（`/showcase button`，AstrBot >= 4.29.4）
+
+`/showcase button` 发**两排**按钮：
+
+- 第一排：`default` / `primary` / `success` / `danger` 四种样式各一个，共用通配处理器 `@filter.button_action()`，
+  点哪个都会回显样式名与 `data`；
+- 第二排：一个**回调按钮**（`showcase:confirm`，120 秒有效期）+ 一个**链接按钮**（文档）。
+  点「确认」走 `@filter.button_action("showcase:confirm")`，回复里带上 `action_id` / `data` / 来源消息 ID。
+
+组件与约定：
+
+| 用法 | 说明 |
+| --- | --- |
+| `ActionRow(buttons=[...], action_timeout=120, fallback_text="...")` | 一排按钮；`action_timeout` 是**回调**按钮的有效期（秒，从首次发送开始计时，同一排共享），`fallback_text` 给不支持按钮的平台 |
+| `Button(id=..., label=..., action=Button.CallbackAction(data={...}), style=Button.Style.PRIMARY)` | 回调按钮；`data` 必须能 JSON 序列化，点击后从 `interaction.data` 读 |
+| `Button(action=Button.UrlAction(url="https://..."))` | 链接按钮：只跳转，不触发回调，也不受 `action_timeout` 限制 |
+| `@filter.button_action("插件:动作")` | 只匹配指定 ID；不写 ID 则匹配**所有**按钮回调（通配处理器要自己按 ID 前缀过滤，别误伤其他插件） |
+| `event.get_button_interaction()` | 取 `action_id` / `data` / `interaction_id` / `source_message_id` |
+
+样式与平台落地（`Button.Style` 共 4 种，映射各不相同）：
+
+| 平台 | default | primary | success | danger |
+| --- | --- | --- | --- | --- |
+| WebChat / Discord / KOOK / Satori | 灰 / secondary | 蓝 / primary | 绿 / success | 红 / danger |
+| QQ 官方机器人 | 灰 | 蓝 | 绿 | **灰（等同 default）** |
+| 飞书 / Slack | 默认 | primary | **primary** | danger |
+| 钉钉 | gray | blue | green | red |
+| 企业微信 / 企业微信 AI Bot | 各自编号映射，4 种都有 | | | |
+| Telegram / LINE | 不处理颜色 | | | |
+| Mattermost | 原样透传 4 种（URL 按钮显示为普通链接） | | | |
+
+几个容易踩的点：
+
+- 按钮点击是**独立事件**，既不会触发 `/showcase` 指令，也不走唤醒前缀判断；核心只会把事件派发给带 `ButtonActionFilter` 的处理器
+  （`astrbot/core/pipeline/waking_check/stage.py:212-217`），所以普通指令不会因为按钮点击被误触发。
+- 过期语义由核心处理：超时后的点击会提示“按钮已过期”，不会进插件；`action_timeout` 必须有限且大于 0，默认 `None` 表示不限时。
+- 各平台支持度不同：QQ 官方机器人 / Telegram / 飞书 / 钉钉 / Discord / Slack / LINE / KOOK / Satori / 企业微信 / WebChat 支持回调按钮；
+  OneBot v11、Misskey、微信公众号、微信个人号只会**文字回退**。完整表见 `docs/zh/dev/star/guides/send-message.md:96-100`。
+- QQ 官方机器人有硬限制（`qqofficial_message_event.py:1000` 起）：最多 5 行、每行最多 5 个按钮、按钮 ID 必须非空且唯一、
+  `data` 序列化后 ≤ 1024 字节；`Style.DANGER` 在 QQ 上映射成默认样式。用前要在 QQ 开放平台给机器人开通「按钮 / 内联键盘」权限。
+- 一个消息里的按钮 ID 必须唯一（QQ 会直接报错），所以“四种样式预览”用了四个不同 ID + 一个通配处理器，而不是同一个 ID 复用。
+- 按钮点完仍留在原消息里，要“刷新”按钮就再发一条新的。
 
 ### 事件钩子不只是记日志
 
@@ -455,17 +502,17 @@ pytest                      # 纯逻辑测试必跑；集成测试视环境自�
 
 ## 九、4.29 / 4.30 线新增的扩展点（本插件暂未演示）
 
-这些能力是 4.29.0~4.29.4 和**未发版的 4.30 线**（master）加进来的。本插件为了守住 `>=4.27.3` 的下限、
+这些能力是 4.29.0~4.29.4 和**未发版的 4.30 线**（master）加进来的。`dev` 分支为了守住 `>=4.27.3` 的下限、
 也为了兼容已发布版本，暂时没有把它们写进示例，列在这里方便按需取用：
 
 | 能力 | 引入版本 | 用法要点 |
 | --- | --- | --- |
-| 交互按钮 | **4.29.4**（PR #9809） | `Comp.ActionRow(buttons=[Comp.Button(id=..., label=..., action=Comp.Button.CallbackAction(data={...}), style=Comp.Button.Style.PRIMARY)])`；用 `@filter.button_action("插件名:动作")` 收点击，`event.get_button_interaction()` 拿 `action_id`/`data`；`UrlAction` 只跳链接；有 `action_timeout` 过期语义，各平台有不支持按钮时的降级。见 `docs/zh/dev/star/guides/send-message.md:90-147`。**用了它，`astrbot_version` 必须抬到 `>=4.29.4`** |
-| `subtitles` | 4.29.1 | 下拉选项副标题，按索引与 `options` 对应，只影响展示 |
-| `_special: umo` / `_special: sender_id` | 4.29.4 | 配置项直接弹「选会话来源」/「选用户」；`umo` 配 `string` 存单个 UMO、配 `list` 存多个；`sender_id` 配 `list` 存用户 ID |
+| 交互按钮 | **4.29.4**（PR #9809） | **本分支已演示**，见上一节；`dev` 分支没有这个演示 |
+| `subtitles` | 4.29.1 | **本分支已演示**：`log_level` 的四个选项各带一句副标题，只影响展示 |
+| `_special: umo` / `_special: sender_id` | 4.29.4 | **本分支已演示**：`demo_umo`（`string`，存单个 UMO）与 `demo_sender`（`list`，存用户 ID），值只回显 |
 | 编程式 agent | **未发版（4.30 线）** | `context.agent`（`AgentService`）+ 公共类型模块 `astrbot.api.agents`（`AgentRuntime`、`AgentSession`、turn 事件流、`AgentPermissions`）；同时 `context.subagent_orchestrator` 已被移除 |
 | 会话 API 改名 | **未发版（4.30 线）** | `context.conversations` 是首选名，`context.conversation_manager` 保留为兼容别名（`core/star/context.py:171-173`） |
-| 折叠分组 | **未发版（4.30 线）** | 插件配置页的 `object` 分组支持 `collapsed: true` 默认收起（PR #11067） |
+| 折叠分组 | **未发版（4.30 线）** | **本分支已演示**：`advanced` 分组带 `collapsed: true`（PR #11067），4.29.4 上会被忽略 |
 | agent 结束原因 | **未发版（4.30 线）** | `ContextWrapper.run_end_reason` 取 `completed` / `error` / `cancelled` / `max_steps`，`run_error` 是错误描述（`core/agent/run_context.py:20-24`），比只看 `on_agent_done` 有无异常更准 |
 
 ## 鸣谢

@@ -4,15 +4,16 @@ name: astrbot_plugin_showcase # 插件唯一识别名；与 author 一起组成 
 display_name: AstrBot Showcase # WebUI / 插件市场展示名；可被 .astrbot-plugin/i18n 下的 metadata.display_name 覆盖
 desc: AstrBot 插件能力全景示例：配置 Schema、事件钩子、国际化、WebUI Page、LLM 工具与持久化存储。
 short_desc: 一个插件看懂 AstrBot 插件能做什么 # 插件市场卡片用的一句话简介；缺省时回退显示 desc
-version: v1.2.0 # 版本号，格式 v1.1.1 或 v1.1（与 CHANGELOG.md 最新一节的标题一致）
+version: v1.4.0 # 版本号，格式 v1.1.1 或 v1.1（与 CHANGELOG.md 最新一节的标题一致）
 author: lingyun14beta
 repo: https://github.com/lingyun14beta/astrbot_plugin_showcase # 插件仓库地址；缺失时 AstrBot 无法检查更新
 # 【市场侧字段】仅插件市场（cloud.astrbot.app）读取，AstrBot 本体不解析——详见 README「已知边界」。
 # 与 tags 不同，它连本地 WebUI 也读不到：详情页「作者网站」只认市场接口返回的 social_link。
 social_link: https://github.com/lingyun14beta
-astrbot_version: ">=4.27.3" # PEP 440 版本范围；当前 AstrBot 不满足时会被阻止加载
+astrbot_version: ">=4.29.4" # PEP 440 版本范围；当前 AstrBot 不满足时会被阻止加载
 # 下限依据（用 git 历史逐个 API 反查，括号内为该 API 最早出现的版本）：
-#   【决定下限】context.activate_llm_tool_async —— 4.27.3（/showcase tools on|off 的运行时开关）
+#   【本分支决定下限】交互按钮 filter.button_action / ActionRow / Button —— 4.29.4（/showcase button）
+#   【dev 分支决定下限】context.activate_llm_tool_async —— 4.27.3（/showcase tools on|off 的运行时开关）
 #   类式工具与工具循环：context.add_llm_tools —— 4.5.1；context.tool_loop_agent —— 4.5.7
 #   定时任务 context.cron_manager.add_basic_job —— 4.14.0；后台任务型工具 is_background_task —— 4.14.0
 #   多轮会话 session_waiter —— 3.4.36；子 agent register_agent —— 4.0.0
