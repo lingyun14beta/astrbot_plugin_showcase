@@ -62,18 +62,24 @@ astrbot_plugin_showcase/
 ### 哪些能拆、哪些不能
 
 `main.py` 里保留的是**被 `@filter.*` 装饰的函数本体**，实现一律放子包。这不是风格选择，而是
-AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handler_module_path]`
-（通用钩子派发 `core/pipeline/context_utils.py:99`、`core/core_lifecycle.py:373`、
-`core/star/star_manager.py:1430/1972`、`core/pipeline/result_decorate/stage.py:166-186`、
-`core/platform/manager.py:234`、`core/pipeline/waking_check/stage.py:205/225` 等），
-而 `star_map` 只为「定义了 Star 子类的模块」建条目 —— 也就是插件主模块。
+AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__module__`
+（`core/star/register/star_handler.py:58`，4.29.4 仍是如此），而 `star_map` 只为
+「定义了 Star 子类的模块」建条目 —— 也就是插件主模块。
 
-把被装饰的函数放进子模块的后果不是「少一条日志」：
+4.29 起**通用钩子派发已经容错**：`call_event_hook` 改用 `star_map.get(handler.handler_module_path)`
+（`core/pipeline/context_utils.py:105-106`），取不到时用模块路径当名字、钩子照常执行。
+但**另一些位置仍然直接索引**，取不到就是 KeyError：
 
-- `context_utils.py` 里那行日志在 `try` 内、但「事件被 stop」的日志在 `try` 外，
-  所以钩子既不会执行（异常被 `except BaseException` 吞掉，只留一条 traceback），
-  还可能让 KeyError 冒泡进管线；
-- 插件加载/卸载、`on_decorating_result`、`on_platform_loaded` 等钩子的日志同样会炸。
+| 位置 | 触发时机 |
+| --- | --- |
+| `core/core_lifecycle.py:380` | `on_astrbot_loaded` |
+| `core/pipeline/result_decorate/stage.py:165/177/185` | `on_decorating_result`（异常被 `except BaseException` 吞掉 → 钩子**静默不执行**） |
+| `core/platform/manager.py:253` | `on_platform_loaded`（同样在 try 内） |
+| `core/pipeline/waking_check/stage.py:244/264` | 唤醒检查里的异常/停止日志 |
+| `core/provider/func_tool_manager.py:1076/1117` | LLM 工具的启用校验 |
+| `core/star/star_manager.py:1185/1833` | 按模块路径管理插件元数据 |
+
+结论没变（装饰器放主模块最安全），但后果要按钩子区分：**部分钩子静默失效，部分会抛 KeyError**。
 
 所以本插件的做法是：**main.py 只写「装饰器 + 一行委托」**（和官方内置插件把指令实现放进
 `commands/` 同一个套路），逻辑放 `showcase/hooks.py`。
@@ -104,7 +110,7 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 | `/showcase agent <任务>` | `context.tool_loop_agent` 工具循环（模型自行调用工具） |
 | `/showcase tools [on\|off]` | 类式 `FunctionTool` 列表 + 运行时启用/停用 |
 | `/showcase history [n]` | `ConversationManager`：读取当前会话的历史消息 |
-| `/showcase card` | `Star.html_render` 渲染 HTML 为图片 |
+| `/showcase card` | `Star.html_render` 渲染 HTML 为图片（实现在 `core/star/base.py:104`，另有 `context.html_renderer` 可直接调用） |
 | `/showcase chain` | `At` / `Plain` 消息组件与消息链 |
 | `/showcase react` | `event.react()` 表情回应 |
 | `/showcase typing` | `event.send_typing()` / `stop_typing()` |
@@ -185,20 +191,37 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 | `labels` | `log_level` | 3.4.27 | 下拉显示英文原值 |
 | `invisible` | `advanced.debug_dump` | 3.4.2 | 隐藏项会显示出来 |
 
+4.29 起又加了一批配置页/页面能力，**本插件的 Schema 还没有使用**（列在这里便于以后按需加）：
+
+| 能力 | WebUI 引入版本 | 说明 |
+| --- | --- | --- |
+| `views/` 目录 / `window.AstrBotPluginView` / `views.<名字>.*` 文案 | 4.29.0 | `pages/`、`pages.<名字>.*`、`window.AstrBotPluginPage` 都保留为别名 |
+| `subtitles` | 4.29.1 | 下拉选项的副标题，按索引与 `options` 对应 |
+| `_special: umo` / `_special: sender_id` | 4.29.4 | 打开「选择会话来源」/「选择用户」弹窗，存 UMO 或用户 ID |
+| `collapsed: true` | **未发版（4.30 线）** | `object` 分组默认收起；4.29.4 及以前会被忽略 |
+
 凡是「缺失会明显影响使用」的（≥ 4.10 的那几项），对应字段的 `hint` 里也写了「需 WebUI ≥ x.y.z」，
 这样在旧 WebUI 上打开配置页时能直接看到原因。更新 WebUI 到与 core 同版本即可全部恢复
 （WebUI 更新入口，或从源码 `cd dashboard && pnpm build`）。
 
-## 三、WebUI Page
+## 三、WebUI Page（4.29 起官方叫 View）
 
 插件自带的页面位于 `pages/showcase/index.html`，在 WebUI 的插件详情页里打开。页面完全由插件目录下的静态文件渲染，
-运行在受限 iframe 中，只能用 `window.AstrBotPluginPage`（bridge）与外界通信：
+运行在受限 iframe 中，只能用 `window.AstrBotPluginView`（bridge；4.29 之前的名字 `window.AstrBotPluginPage`
+保留为别名，本页用的仍是后者）与外界通信：
+
+> **命名迁移（4.29.0，PR #10307）**：目录 `views/` 优先、`pages/` 仍兼容
+> （`astrbot/dashboard/services/plugin_page_service.py:29`）；bridge 新名 `AstrBotPluginView`，
+> 旧名是该对象的别名（`astrbot/dashboard/plugin_page_bridge.js:212/293`）；后端路由统一到
+> `/plugins/{plugin_id}/views/...`，`/plugins/pages`、`/plugins/page` 标记为 deprecated 别名
+> （`astrbot/dashboard/api/plugins.py:885-901`）。本插件继续用 `pages/` 是为了兼容 4.27/4.28；
+> 只支持 4.29+ 的新插件建议直接叫 `views/`。
 
 | bridge 方法 | 说明 |
 | --- | --- |
 | `ready()` / `getContext()` | 获取运行上下文（插件名、页面名、语言、主题） |
 | `onContext(fn)` | 主题或语言切换时重绘 |
-| `t(key, fallback)` | 读取 `pages.<页面名>.*` 文案，自动回退 `zh-CN` / `en-US` |
+| `t(key, fallback)` | 读取 `views.<页面名>.*` 文案（找不到再回退 `pages.<页面名>.*`），语言回退 `zh-CN` / `en-US` |
 | `apiGet(endpoint, params)` | 调用插件后端接口（`params` 会拼成查询串） |
 | `apiPost(endpoint, body)` | 同上，JSON 请求体 |
 | `upload` / `download` / `subscribeSSE` | 上传、下载、SSE 订阅（本页未使用，接口同样可用） |
@@ -229,14 +252,16 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 ## 五、国际化
 
 ```
-.astrbot-plugin/i18n/zh-CN.json   # metadata.* / config.* / pages.*
+.astrbot-plugin/i18n/zh-CN.json   # metadata.* / config.* / views.*（pages.* 是别名）
 .astrbot-plugin/i18n/en-US.json
 .astrbot-plugin/i18n/ja-JP.json
 ```
 
 - 插件信息：`metadata.display_name` / `metadata.desc` / `metadata.short_desc`
 - 配置项：`config.<字段路径>.description|hint|labels`（`object` 与 `template_list` 的 `items` 段要省略）
-- 页面：`pages.showcase.title|description` 以及页面内任意自定义键
+- 页面：`views.showcase.title|description` 以及页面内任意自定义键；4.29 之前只认 `pages.showcase.*`
+  （`plugin_page_service.py:195-196` 先查 `views.`、再回退 `pages.`）。本插件用的仍是 `pages.`
+  —— 要迁到新名字，直接改 JSON 顶层键 + 页面里的取词前缀即可。
 
 需要注意：**AstrBot 目前只把 i18n 交给 WebUI 使用，没有提供聊天侧的取词 API**，也没有全局的聊天语言设置。
 插件若想在聊天里输出多语言文案，只能自己读取这些 JSON —— `/showcase i18n <locale>` 与 `main.py` 里的
@@ -252,16 +277,18 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 
 ## 七、已知边界
 
-- `metadata.yaml` 里的 `pages:` 字段目前不会被 Dashboard 读取，页面完全由 `pages/<页面名>/index.html`
-  目录扫描发现，因此本插件没有声明它。
-- `social_link` 是**市场侧字段**，AstrBot 本体（4.28.1）完全不解析它：`StarMetadata` 没有这个字段
+- `metadata.yaml` 里的 `views:` 字段（4.29 前的名字 `pages:` 仍兼容）会被解析进 `StarMetadata.views`
+  （`astrbot/core/star/star_manager.py:556-558`），但 **Dashboard 实际按目录扫描**
+  `views/<名字>/index.html`（兼容 `pages/`，`plugin_page_service.py:29/465`），所以声明它不影响页面发现；
+  本插件没有声明。
+- `social_link` 是**市场侧字段**，AstrBot 本体（4.29.4）完全不解析它：`StarMetadata` 没有这个字段
   （`astrbot/core/star/star.py:24-76`），插件详情接口也只序列化 `StarMetadata` 上有的字段
-  （`astrbot/dashboard/services/plugin_service.py:637-659`）。详情页那个「作者网站」读的是
+  （`astrbot/dashboard/services/plugin_service.py:634` 起的 `serialize_plugin_base`，里面没有
+  `social_link` / `author_url` / `homepage`）。详情页那个「作者网站」读的是
   `plugin.social_link || marketPlugin.social_link || plugin.author_url || ... || homepage`
-  （`dashboard/src/views/ExtensionPage.vue:216-240` 用 repo 把已安装插件匹配到市场条目，
-  再传给 `PluginDetailPage.vue:169-181`），所以只有**上架插件市场后**才会显示；
-  本地手装（`git clone` 到 `data/plugins`）时这一行写了也不显示。`author_url`、`homepage`
-  同理，它们不是 `metadata.yaml` 的字段，只有市场接口会返回。
+  （`dashboard/src/views/extension/PluginDetailPage.vue:169-181`，`ExtensionPage.vue` 用 repo 把已安装插件
+  匹配到市场条目），所以只有**上架插件市场后**才会显示；本地手装（`git clone` 到 `data/plugins`）时
+  这一行写了也不显示。`author_url`、`homepage` 同理，它们不是 `metadata.yaml` 的字段，只有市场接口会返回。
 - 页面 iframe 的沙箱不允许访问 Dashboard 的 cookie / localStorage；资源必须写**相对路径**，
   绝对路径（如 `/app.js`）不会被重写、会 404。
 - `secret` 字段只是显示层掩码（且需 WebUI ≥ 4.28.0），值始终明文存储，不要填真实凭据。
@@ -269,26 +296,30 @@ AstrBot 的实现约定：它在 **10 处**直接索引 `star_map[handler.handle
 - **WebUI 版本可能落后于 core**：`astrbot_version` 只能约束 core，配置页能不能渲染出滑条、勾选框、
   模板列表取决于 WebUI 资产版本。对照上面的版本表，或直接看 AstrBot 启动日志里
   `Some dashboard features may not work until matching assets are available.` 这类告警。
-- Schema 里另有几个键**只对 Dashboard 内置配置页生效**，插件配置页不读，本插件没有使用它们
-  （记录在此避免误用）：`full_width`、`collapsed`（仅核心配置渲染器）、`items_type`（任何地方都不读）。
+- Schema 里的这几个键容易记错：`full_width` **插件配置页也支持**（插件配置页用的 `AstrBotConfig.vue`
+  已经走共享的 `ConfigItemRenderer.vue`，见 `astrbot/dashboard/.../ConfigItemRenderer.vue:2`）；
+  `collapsed` 从**未发版的 4.30 线**起对插件配置页生效（4.29.4 及以前会被忽略）；
+  `items_type` 仍然没有任何地方读取。
 - 插件自己声明的 `enabled`/`enabled_features` 是**插件逻辑**的开关，与 AstrBot 插件列表里的启用/停用无关；
   后者由 AstrBot 管理（`metadata.star_cls` 会被置空），此时指令组会静默不唤醒。
 - **平台适配器的注册无法用配置开关关掉**：`@register_platform_adapter` 在 `import` 期执行，那时插件配置还没读到，
   所以只要本插件被加载，WebUI 的「消息平台类别」里就会有 `showcase_fake` 这一项（配置页需要重新拉取才刷新）。
   插件重载/卸载时会按模块路径前缀注销（`astrbot/core/platform/register.py:66-91`、
-  `astrbot/core/star/star_manager.py:815`），此时已建好的平台实例会变成"找不到适配器"的悬空配置，需要手动删掉。
+  `astrbot/core/star/star_manager.py:818`），此时已建好的平台实例会变成"找不到适配器"的悬空配置，需要手动删掉。
 - 平台适配器只解决"**提供一种新平台**"；替用户建实例没有插件 API —— WebUI 走的是
   `config_service.create_bot`（改全局配置 → `save_config` → `platform_manager.load_platform`，
-  `astrbot/dashboard/services/config_service.py:1432-1441`）。*理论*上插件也能这么干
+  `astrbot/dashboard/services/config_service.py:1432-1443`）。*理论*上插件也能这么干
   （`context.get_config()` 拿全局配置、`context.platform_manager` 是真实的管理器对象），
   但 `load_platform` / `reload` / `terminate_platform` 不在 `PlatformManagerProtocol` 的声明里
-  （`astrbot/core/star/context.py:118-120`），属于内部实现，不要依赖。
-- **本版本不建议插件使用、因此本插件没有演示的 API**（记录在此避免后来人踩坑）：
-  `register_agent` / handoff 子 agent —— 全仓库只有 `star_handler.py` 自身定义，没有任何内置插件、
-  文档或测试用过，触发链路不明，照抄很可能跑不起来；`context.get_db()`、`subagent_orchestrator`、
-  `kb_manager` 属于内部管理器，示例插件直接依赖会耦合内部实现（`get_db()` 还会把库表结构暴露给读者）；
-  `sp.global_*` 是跨插件全局键，容易鼓励滥用（README 说明用途即可）；已废弃的 `@register` 装饰器、
-  `load_config/put_config/update_config`、`context.register_task` 也不适合作为示例。
+  （`astrbot/core/star/context.py:130`），属于内部实现，不要依赖。
+- **`register_agent` / 子 agent 要分版本看**：4.29.4 里 core 自己已经在用（`pipeline/process_stage/follow_up.py`、
+  `utils/active_event_registry.py` 及单测），不再是"只有定义没人用"；未发版的 4.30 线又加了公共模块
+  `astrbot.api.agents`（`AgentService` / `AgentRuntime` / turn 事件流）并把 `context.subagent_orchestrator`
+  换成了 `context.agent`（`core/star/context.py:187`）。本插件仍不演示它，因为 4.30 线没有 `astrbot_version`
+  能表达的版本号。
+- 其余**本版本不建议插件直接依赖**的内部管理器：`context.get_db()`、`context.kb_manager`（示例插件直接依赖
+  会耦合内部实现，`get_db()` 还会把库表结构暴露给读者）；`sp.global_*` 是跨插件全局键，容易鼓励滥用；
+  已废弃的 `@register` 装饰器、`load_config/put_config/update_config`、`context.register_task` 也不适合作为示例。
 - **`event.send_streaming` 的平台支持有限**（官方仅 Telegram 与 QQ 官方私聊，`use_fallback=True` 时
   aiocqhttp 可用），其他平台调用不会报错但也不会有流式效果。
 
@@ -343,12 +374,12 @@ payload 的 key 对上；**handler 只在内存里**，`persistent=True` 的作�
 
 1. `@register_platform_adapter(...)` 把类写进 `platform_registry`（`astrbot/core/platform/register.py:58`）；
 2. Dashboard 生成配置元数据时遍历这张表，把 `default_config_tmpl` 并进
-   `platform_group.metadata.platform.config_template`（`astrbot/dashboard/services/config_service.py:982-998`），
+   `platform_group.metadata.platform.config_template`（`astrbot/dashboard/services/config_service.py:957-961`），
    而 WebUI「创建机器人 → 消息平台类别」下拉框读的正是它
-   （`dashboard/src/components/platform/AddNewPlatform.vue:965-970`）—— 所以**加载本插件后，那个下拉框里会多出
+   （`dashboard/src/components/platform/AddNewPlatform.vue:891`）—— 所以**加载本插件后，那个下拉框里会多出
    「Showcase Fake Platform」**；
 3. 在 WebUI 里选中它、填好参数保存（记得打开「启用」），核心才实例化并 `run()`
-   （`astrbot/core/platform/manager.py:218`，顺便会触发本插件的 `on_platform_loaded` 钩子）。
+   （`astrbot/core/platform/manager.py:237`，顺便会触发本插件的 `on_platform_loaded` 钩子）。
 
 装饰器参数里的几个"演示点"：
 
@@ -356,15 +387,15 @@ payload 的 key 对上；**handler 只在内存里**，`persistent=True` 的作�
 | --- | --- |
 | `default_config_tmpl` | 表单预填值；`type` / `enable` / `id` 会被自动补上（`register.py:35-41`），`enable` 默认 `False` |
 | `config_metadata` | 决定表单长什么样；不提供就退化成裸键值对编辑框。字段会并进**所有适配器共用**的 `items` 表，命名别太通用 |
-| `i18n_resources` | 表单文案的多语言；给了它之后 `config_metadata` 里的 `description`/`hint`/`labels` 会被替换成 i18n key（`config_service.py:1106-1129`） |
-| `logo_path` | 相对**适配器类所在文件**的目录解析（`config_service.py:1057-1059`），所以本模块放在插件根目录，写 `logo.png` 即可 |
+| `i18n_resources` | 表单文案的多语言；给了它之后 `config_metadata` 里的 `description`/`hint`/`labels` 会被替换成 i18n key（`config_service.py:1092-1112`） |
+| `logo_path` | 相对**适配器类所在文件**的目录解析（`config_service.py:1043`），所以本模块放在插件根目录，写 `logo.png` 即可 |
 | `support_streaming_message` | 假平台不支持真流式，声明为 `False` |
 
-拿到实例后（`context.get_platform("showcase_fake")`，按 `meta().name` 查，见 `astrbot/core/star/context.py:778-782`）：
+拿到实例后（`context.get_platform("showcase_fake")`，按 `meta().name` 查，见 `astrbot/core/star/context.py:824`）：
 
 - `/showcase adapter status` —— 报告是否已注册、实例是否已创建，没创建时给出 WebUI 操作步骤；
 - `/showcase adapter inject <文本>` —— 造一条假的私聊消息丢进事件队列，让它走完整管线。
-  私聊默认不需要唤醒前缀（`core/pipeline/waking_check/stage.py:152-159`），所以普通文本会真的调用模型；
+  私聊默认不需要唤醒前缀（`core/pipeline/waking_check/stage.py:159-168`），所以普通文本会真的调用模型；
   想省 token 就注入 `/showcase hello` 这类指令；
 - `/showcase adapter log` —— 看假平台"发出"的消息（`send()` 把回复记进内存环形缓冲，真实适配器在这里调平台 SDK）。
 
@@ -421,6 +452,21 @@ pytest                      # 纯逻辑测试必跑；集成测试视环境自�
 `/showcase silent`（`should_call_llm(False)` 拦下后续 LLM 处理）、
 `/showcase-recall`（`@filter.platform_adapter_type(AIOCQHTTP)` + `event.bot.api.call_action`，平台原生调用）。
 这四条都做了「平台不支持时回一句提示」的兜底，不会因为适配器差异直接报错。
+
+## 九、4.29 / 4.30 线新增的扩展点（本插件暂未演示）
+
+这些能力是 4.29.0~4.29.4 和**未发版的 4.30 线**（master）加进来的。本插件为了守住 `>=4.27.3` 的下限、
+也为了兼容已发布版本，暂时没有把它们写进示例，列在这里方便按需取用：
+
+| 能力 | 引入版本 | 用法要点 |
+| --- | --- | --- |
+| 交互按钮 | **4.29.4**（PR #9809） | `Comp.ActionRow(buttons=[Comp.Button(id=..., label=..., action=Comp.Button.CallbackAction(data={...}), style=Comp.Button.Style.PRIMARY)])`；用 `@filter.button_action("插件名:动作")` 收点击，`event.get_button_interaction()` 拿 `action_id`/`data`；`UrlAction` 只跳链接；有 `action_timeout` 过期语义，各平台有不支持按钮时的降级。见 `docs/zh/dev/star/guides/send-message.md:90-147`。**用了它，`astrbot_version` 必须抬到 `>=4.29.4`** |
+| `subtitles` | 4.29.1 | 下拉选项副标题，按索引与 `options` 对应，只影响展示 |
+| `_special: umo` / `_special: sender_id` | 4.29.4 | 配置项直接弹「选会话来源」/「选用户」；`umo` 配 `string` 存单个 UMO、配 `list` 存多个；`sender_id` 配 `list` 存用户 ID |
+| 编程式 agent | **未发版（4.30 线）** | `context.agent`（`AgentService`）+ 公共类型模块 `astrbot.api.agents`（`AgentRuntime`、`AgentSession`、turn 事件流、`AgentPermissions`）；同时 `context.subagent_orchestrator` 已被移除 |
+| 会话 API 改名 | **未发版（4.30 线）** | `context.conversations` 是首选名，`context.conversation_manager` 保留为兼容别名（`core/star/context.py:171-173`） |
+| 折叠分组 | **未发版（4.30 线）** | 插件配置页的 `object` 分组支持 `collapsed: true` 默认收起（PR #11067） |
+| agent 结束原因 | **未发版（4.30 线）** | `ContextWrapper.run_end_reason` 取 `completed` / `error` / `cancelled` / `max_steps`，`run_error` 是错误描述（`core/agent/run_context.py:20-24`），比只看 `on_agent_done` 有无异常更准 |
 
 ## 鸣谢
 

@@ -6,6 +6,37 @@
 >
 > 约定：发版时让 `metadata.yaml` 的 `version` 与本文档最新一节的标题一致。
 
+## v1.2.0
+
+对齐 AstrBot **4.29.4**（master 上已含未发版的 4.30 线改动）核对一遍文档结论：代码不用改，改的是过期的说法。
+
+### 修正
+
+- **`pages` → `views`**（4.29.0，PR #10307）：`views/` 目录与 `window.AstrBotPluginView` 是首选名，
+  `pages/`、`window.AstrBotPluginPage`、`pages.<名字>.*` 文案、`/plugins/pages` 路由都保留为别名；
+  `metadata.yaml` 的 `views:`/`pages:` 会被解析进 `StarMetadata.views`，但页面发现仍靠目录扫描。
+  本插件继续用 `pages/` + 旧 bridge 名，以兼容 4.27/4.28（README 里写明了迁移方法）
+- **star_map 约束的论据更新**：4.29 起通用钩子派发改用 `star_map.get(...)`（`context_utils.py:105-106`），
+  子模块里的钩子不再必然静默失效；但 `on_decorating_result`、`on_platform_loaded`、`on_astrbot_loaded`、
+  唤醒检查与工具启用校验仍直接索引 `star_map[...]`，结论（装饰器放主模块）不变，措辞改为按钩子区分
+- **`register_agent` 结论反转**：4.29.4 里 core 自己就在用（`follow_up.py`、`active_event_registry.py` 与单测），
+  不再是"只有定义没人用"；未发版的 4.30 线新增 `astrbot.api.agents` 与 `context.agent`，
+  `context.subagent_orchestrator` 已被移除
+- **配置页修饰键**：`full_width` 插件配置页也支持了（插件配置页已走共享的 `ConfigItemRenderer.vue`）；
+  `collapsed` 从 4.30 线起支持；只有 `items_type` 仍然没人读
+- **行号与版本号**：`Star.html_render` 实现移到 `core/star/base.py:104`（另可用 `context.html_renderer`）；
+  `serialize_plugin_base` 637→634、`create_bot` 1432→1442、平台实例化 218→237、
+  `AddNewPlatform.vue` 965→891、`context.get_platform` 778→824 等引用全部重挂
+- **新增参考表**：4.29/4.30 新增的扩展点（交互按钮、`subtitles`、`_special: umo`/`sender_id`、
+  `context.agent`、`context.conversations`、`collapsed`、`run_end_reason`）列进 README 第九节，
+  标注了引入版本与"未发版"状态，方便按需取用
+
+### 说明
+
+- 版本下限仍是 `>=4.27.3`；只有真要演示交互按钮时才需要抬到 `>=4.29.4`
+- 在 AstrBot 4.29.4（master，含 4.30 线改动）上跑过：`ruff check` / `ruff format --check` 通过，
+  `pytest` 55 项全过
+
 ## v1.1.0
 
 新增「插件注册平台适配器」演示：一个不连接外部服务的假平台 `showcase_fake`。

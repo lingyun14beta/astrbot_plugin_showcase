@@ -1,6 +1,8 @@
 """WebUI Page 的后端接口。
 
 页面（``pages/showcase/``）通过 ``window.AstrBotPluginPage`` bridge 调用这里的接口。
+4.29 起 bridge 的首选名是 ``window.AstrBotPluginView``（旧名保留为别名），页面目录也推荐
+``views/`` —— 本插件仍用旧名与 ``pages/``，为了兼容 4.27/4.28（见 README 第三节）。
 与 ``@filter.*`` 不同，**Web API 不经过 star_handlers_registry**：它只是登记在
 ``Context.registered_web_apis`` 这个普通列表里（见 ``astrbot/core/star/context.py``），
 所以可以放在子模块里 —— 这也是 ``astrbot_plugin_journal`` 等插件的做法。

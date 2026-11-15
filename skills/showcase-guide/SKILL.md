@@ -30,7 +30,7 @@ description: AstrBot Showcase 插件的能力导览。当用户询问 AstrBot �
 | 会话级状态 vs 插件级状态 | `/showcase memo set\|get\|del` | `main.py` |
 | 消息规则（template_list） | `/showcase rules` | `showcase/rules.py` |
 | 插件注册的平台适配器（假平台） | `/showcase adapter status\|inject\|log` | `platform_demo.py` |
-| WebUI Page 与后端接口 | 插件详情页里的「能力展示」 | `pages/showcase/`、`main.py` |
+| WebUI Page 与后端接口 | 插件详情页里的「能力展示」 | `pages/showcase/`、`main.py`（4.29 起官方叫 view，`views/` 优先） |
 | 更新日志约定 | 插件详情页的「更新日志」 | `CHANGELOG.md` |
 
 ## 几条容易答错的点
@@ -41,8 +41,13 @@ description: AstrBot Showcase 插件的能力导览。当用户询问 AstrBot �
   不参与插件逻辑，不要把它们说成功能开关。
 - **聊天侧文本没有官方的 i18n 取词 API**，本插件的 `/showcase i18n` 是自己读 JSON 实现的；
   回答"插件怎么做多语言"时要说明这一点，不要说 AstrBot 提供了翻译函数。
-- **装饰器必须写在插件主模块**（`main.py`）：AstrBot 会用 `star_map[handler.handler_module_path]`
-  直接索引元数据，放到子模块会让钩子静默失效。子包里只放不带装饰器的逻辑。
+- **装饰器要写在插件主模块**（`main.py`）：AstrBot 用 `star_map[handler.handler_module_path]` 索引元数据，
+  子模块里的被装饰函数在部分派发路径上仍有问题。注意 4.29 起**通用钩子派发已经容错**
+  （`call_event_hook` 用 `star_map.get`），但 `on_decorating_result`、`on_platform_loaded`、
+  `on_astrbot_loaded`、唤醒检查、工具启用校验仍直接索引 `star_map[...]`（会静默跳过或抛 KeyError）。
+- **页面目录/bridge 在 4.29 改名**：`views/`、`window.AstrBotPluginView`、`views.<名字>.*`、
+  `/plugins/{id}/views` 是首选；`pages/`、`window.AstrBotPluginPage`、`pages.<名字>.*`、`/plugins/pages`
+  都保留为别名（本插件还在用旧名，为了兼容 4.27/4.28）。
 - **插件自带 Skill 放在 `skills/<名字>/SKILL.md`**，在 WebUI 里作为只读来源展示，不能从本地 Skills 页编辑。
 - **插件能往「消息平台类别」里加一项，但不能替用户建机器人实例**：注册靠 `@register_platform_adapter`
   （`import` 期执行，无法用配置开关关闭），而创建实例走的是 WebUI 那套核心配置 + `platform_manager.load_platform`，
