@@ -6,6 +6,26 @@
 >
 > 约定：发版时让 `metadata.yaml` 的 `version` 与本文档最新一节的标题一致。
 
+## v1.3.0
+
+新增「交互按钮」演示（`feat/buttons` 分支）：`/showcase button` 发一排按钮，`@filter.button_action` 收点击。
+
+### 新增
+
+- **指令**：`/showcase button` —— 一个回调按钮（`showcase:confirm`）+ 一个链接按钮（文档），带 `action_timeout=120`
+  与 `fallback_text`
+- **回调**：`@filter.button_action("showcase:confirm")` handler，回复里回显 `action_id` / `data` / `source_message_id`，
+  演示 `event.get_button_interaction()` 的用法
+- **文档**：README 新增「交互按钮」小节（组件用法、过期语义、各平台支持度、QQ 官方的 5×5 与 1024 字节限制）
+- **测试**：消息链里确实是 `ActionRow` + 两个 `Button`（含超时与回退文案）、回调 handler 的输出内容
+
+### 说明
+
+- **本分支 `astrbot_version` 从 `>=4.27.3` 抬到 `>=4.29.4`**：交互按钮是 4.29.4 才加的能力，4.27/4.28 上无法加载
+- `dev` 分支保持 `>=4.27.3` 且不含按钮演示，两条线功能其余部分一致
+- 平台支持度：QQ 官方机器人 / Telegram / 飞书 / 钉钉 / Discord / Slack / LINE / KOOK / Satori / 企业微信 / WebChat 支持回调；
+  OneBot v11、Misskey、公众号、微信个人号只做文字回退
+
 ## v1.2.0
 
 对齐 AstrBot **4.29.4**（master 上已含未发版的 4.30 线改动）核对一遍文档结论：代码不用改，改的是过期的说法。

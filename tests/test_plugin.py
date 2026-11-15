@@ -22,7 +22,7 @@ import pytest
 
 try:  # 没装 AstrBot（或装坏了）时整份文件跳过，纯逻辑测试仍在 tests/test_rules.py 里跑
     from astrbot.api.event import MessageChain
-    from astrbot.api.message_components import Plain
+    from astrbot.api.message_components import ActionRow, Button, Plain
     from astrbot.core.config.astrbot_config import AstrBotConfig
     from astrbot.core.platform.register import platform_registry
     from astrbot.core.star.star import star_map
@@ -158,6 +158,18 @@ class FakeEvent:
         self.request_kwargs: dict = {}
         self.message_obj = types.SimpleNamespace(message_id=12345)
         self._result = types.SimpleNamespace(chain=[])
+        self._interaction = None
+
+    def set_button_interaction(
+        self, action_id: str, data=None, message_id: str = "m-1"
+    ):
+        self._interaction = types.SimpleNamespace(
+            action_id=action_id,
+            data=data,
+            interaction_id="i-1",
+            source_message_id=message_id,
+        )
+        return self
 
     def get_message_str(self) -> str:
         return self._text
@@ -170,6 +182,12 @@ class FakeEvent:
 
     def image_result(self, url_or_path):
         return f"IMAGE:{url_or_path}"
+
+    def chain_result(self, chain):
+        return {"chain": list(chain)}
+
+    def get_button_interaction(self):
+        return self._interaction
 
     def set_extra(self, key, value):
         self.extras[key] = value
@@ -700,3 +718,42 @@ def test_adapter指令找不到第三方平台实例时不误判():
     context.platforms[FAKE_ADAPTER] = types.SimpleNamespace(meta=lambda: None)
     out = str(collect(plugin.showcase_adapter_status(FakeEvent()))[0])
     assert "平台实例：还没有" in out
+
+
+# ---------------- 交互按钮（feat/buttons 分支） ----------------
+
+
+def test_button指令发的是回调按钮加链接按钮():
+    plugin, _ = build()
+    out = collect(plugin.showcase_button(FakeEvent()))[0]
+    chain = out["chain"]
+    assert isinstance(chain[0], Plain)
+
+    row = next(item for item in chain if isinstance(item, ActionRow))
+    assert row.action_timeout == MODULE.BUTTON_TIMEOUT_SECONDS
+    assert row.fallback_text
+    assert [button.id for button in row.buttons] == [
+        MODULE.BUTTON_ACTION_CONFIRM,
+        MODULE.BUTTON_ACTION_DOCS,
+    ]
+    assert isinstance(row.buttons[0].action, Button.CallbackAction)
+    assert row.buttons[0].action.data == {"demo": True}
+    assert isinstance(row.buttons[1].action, Button.UrlAction)
+    assert row.buttons[1].action.url.startswith("https://")
+
+
+def test_button回调把data回显出来():
+    plugin, _ = build()
+    event = FakeEvent().set_button_interaction(
+        MODULE.BUTTON_ACTION_CONFIRM, {"demo": True}
+    )
+    out = str(collect(plugin.showcase_button_confirm(event))[0])
+    assert MODULE.BUTTON_ACTION_CONFIRM in out
+    assert "'demo': True" in out
+    assert "m-1" in out
+
+
+def test_button回调缺数据时不炸():
+    plugin, _ = build()
+    out = str(collect(plugin.showcase_button_confirm(FakeEvent()))[0])
+    assert "没有收到按钮回调数据" in out

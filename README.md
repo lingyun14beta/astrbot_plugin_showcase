@@ -5,8 +5,9 @@ AstrBot 插件能力全景示例：**一个插件，把所有扩展点各演示�
 它由官方 [helloworld 模板](https://github.com/Soulter/helloworld) 改造而来，除了保留原来的 `/helloworld` 指令，
 其余内容全部用来演示「AstrBot 插件到底能做什么」——配置页、钩子、国际化、WebUI Page、LLM 工具、持久化存储。
 
-> 适用版本：AstrBot `>=4.27.3`（`metadata.yaml` 的 `astrbot_version`，下限由 `/showcase tools on|off`
-> 用到的 `activate_llm_tool_async` 决定；注释里列了每个 API 的引入版本）。
+> 适用版本：AstrBot `>=4.29.4`。`metadata.yaml` 的 `astrbot_version` 注释列了每个 API 的引入版本；
+> 本分支为了演示**交互按钮**（`filter.button_action`，4.29.4 才加）把下限从 4.27.3 抬了上来。
+> 只用 4.27.3 的话切到 `dev` 分支，功能一样、只是没有 `/showcase button`。
 
 ## 适合谁
 
@@ -112,6 +113,7 @@ AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__m
 | `/showcase history [n]` | `ConversationManager`：读取当前会话的历史消息 |
 | `/showcase card` | `Star.html_render` 渲染 HTML 为图片（实现在 `core/star/base.py:104`，另有 `context.html_renderer` 可直接调用） |
 | `/showcase chain` | `At` / `Plain` 消息组件与消息链 |
+| `/showcase button` | 交互按钮：`ActionRow` / `Button` + `@filter.button_action` 回调 |
 | `/showcase react` | `event.react()` 表情回应 |
 | `/showcase typing` | `event.send_typing()` / `stop_typing()` |
 | `/showcase silent <文本>` | `event.should_call_llm(False)` 拦截 LLM |
@@ -174,7 +176,7 @@ AstrBot 的实现约定：注册时 `handler_module_path` 取的是 `handler.__m
 
 ### 版本要求：core 与 WebUI 是两条线
 
-插件在 `metadata.yaml` 里声明了 **core 侧**的下限（`astrbot_version: ">=4.27.3"`，依据见该文件注释）。
+插件在 `metadata.yaml` 里声明了 **core 侧**的下限（本分支 `astrbot_version: ">=4.29.4"`，因为要用交互按钮；`dev` 分支是 `>=4.27.3`；依据见该文件注释）。
 但**配置页的渲染由 WebUI 资产决定，跟 core 版本可以不一致**——WebUI 旧了不会报错，只是某些修饰键被忽略、字段降级渲染。
 下表是 `_conf_schema.json` 里每个能力的前端引入版本与降级表现：
 
@@ -401,8 +403,33 @@ payload 的 key 对上；**handler 只在内存里**，`persistent=True` 的作�
 
 这个 API 本身很老（`register_platform_adapter` 自 **v3.4.0** 就有），但几个装饰器参数是后加的：
 `logo_path` 要 4.3.0、`support_proactive_message` 要 4.14.1、`config_metadata` 与 `i18n_resources`
-要 **4.16.0**（按各 tag 的发布日期逐个反查）。本插件的 `astrbot_version` 下限（`>=4.27.3`）已经覆盖，
+要 **4.16.0**（按各 tag 的发布日期逐个反查）。本插件的 `astrbot_version` 下限（`>=4.29.4`）已经覆盖，
 不需要为它调整。
+
+### 交互按钮（`/showcase button`，AstrBot >= 4.29.4）
+
+`/showcase button` 发一条带按钮的消息：一个**回调按钮**（`showcase:confirm`）和一个**链接按钮**（文档）。
+点「确认」会走 `@filter.button_action("showcase:confirm")`，回复里带上 `action_id` / `data` / 来源消息 ID。
+
+组件与约定：
+
+| 用法 | 说明 |
+| --- | --- |
+| `ActionRow(buttons=[...], action_timeout=120, fallback_text="...")` | 一排按钮；`action_timeout` 是**回调**按钮的有效期（秒，从首次发送开始计时，同一排共享），`fallback_text` 给不支持按钮的平台 |
+| `Button(id=..., label=..., action=Button.CallbackAction(data={...}), style=Button.Style.PRIMARY)` | 回调按钮；`data` 必须能 JSON 序列化，点击后从 `interaction.data` 读 |
+| `Button(action=Button.UrlAction(url="https://..."))` | 链接按钮：只跳转，不触发回调，也不受 `action_timeout` 限制 |
+| `@filter.button_action("插件:动作")` | 只匹配指定 ID（不写 ID 则匹配所有按钮回调）；处理器里用 `event.get_button_interaction()` 取 `action_id` / `data` / `interaction_id` / `source_message_id` |
+
+几个容易踩的点：
+
+- 按钮点击是**独立事件**，既不会触发 `/showcase` 指令，也不走唤醒前缀判断；核心只会把事件派发给带 `ButtonActionFilter` 的处理器
+  （`astrbot/core/pipeline/waking_check/stage.py:212-217`），所以普通指令不会因为按钮点击被误触发。
+- 过期语义由核心处理：超时后的点击会提示“按钮已过期”，不会进插件；`action_timeout` 必须有限且大于 0，默认 `None` 表示不限时。
+- 各平台支持度不同：QQ 官方机器人 / Telegram / 飞书 / 钉钉 / Discord / Slack / LINE / KOOK / Satori / 企业微信 / WebChat 支持回调按钮；
+  OneBot v11、Misskey、微信公众号、微信个人号只会**文字回退**。完整表见 `docs/zh/dev/star/guides/send-message.md:96-100`。
+- QQ 官方机器人有硬限制（`qqofficial_message_event.py:1000` 起）：最多 5 行、每行最多 5 个按钮、按钮 ID 必须非空且唯一、
+  `data` 序列化后 ≤ 1024 字节；`Style.DANGER` 在 QQ 上映射成默认样式。用前要在 QQ 开放平台给机器人开通「按钮 / 内联键盘」权限。
+- 按钮点完仍留在原消息里，要“刷新”按钮就再发一条新的。
 
 ### 事件钩子不只是记日志
 
@@ -455,12 +482,12 @@ pytest                      # 纯逻辑测试必跑；集成测试视环境自�
 
 ## 九、4.29 / 4.30 线新增的扩展点（本插件暂未演示）
 
-这些能力是 4.29.0~4.29.4 和**未发版的 4.30 线**（master）加进来的。本插件为了守住 `>=4.27.3` 的下限、
+这些能力是 4.29.0~4.29.4 和**未发版的 4.30 线**（master）加进来的。`dev` 分支为了守住 `>=4.27.3` 的下限、
 也为了兼容已发布版本，暂时没有把它们写进示例，列在这里方便按需取用：
 
 | 能力 | 引入版本 | 用法要点 |
 | --- | --- | --- |
-| 交互按钮 | **4.29.4**（PR #9809） | `Comp.ActionRow(buttons=[Comp.Button(id=..., label=..., action=Comp.Button.CallbackAction(data={...}), style=Comp.Button.Style.PRIMARY)])`；用 `@filter.button_action("插件名:动作")` 收点击，`event.get_button_interaction()` 拿 `action_id`/`data`；`UrlAction` 只跳链接；有 `action_timeout` 过期语义，各平台有不支持按钮时的降级。见 `docs/zh/dev/star/guides/send-message.md:90-147`。**用了它，`astrbot_version` 必须抬到 `>=4.29.4`** |
+| 交互按钮 | **4.29.4**（PR #9809） | **本分支已演示**，见上一节；`dev` 分支没有这个演示 |
 | `subtitles` | 4.29.1 | 下拉选项副标题，按索引与 `options` 对应，只影响展示 |
 | `_special: umo` / `_special: sender_id` | 4.29.4 | 配置项直接弹「选会话来源」/「选用户」；`umo` 配 `string` 存单个 UMO、配 `list` 存多个；`sender_id` 配 `list` 存用户 ID |
 | 编程式 agent | **未发版（4.30 线）** | `context.agent`（`AgentService`）+ 公共类型模块 `astrbot.api.agents`（`AgentRuntime`、`AgentSession`、turn 事件流、`AgentPermissions`）；同时 `context.subagent_orchestrator` 已被移除 |

@@ -28,7 +28,7 @@ from typing import Any
 
 from astrbot.api import AstrBotConfig, ToolSet, logger, sp
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
-from astrbot.api.message_components import At, Plain
+from astrbot.api.message_components import ActionRow, At, Button, Plain
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.star.star import star_map
@@ -45,6 +45,11 @@ from .showcase.wizard import ShowcaseWizard
 PLUGIN_NAME = "astrbot_plugin_showcase"
 LOG = "[showcase]"
 I18N_DIR = Path(__file__).resolve().parent / ".astrbot-plugin" / "i18n"
+
+# 交互按钮（AstrBot >= 4.29.4）：按钮 ID 建议带插件名前缀，避免和其他插件/核心按钮撞车。
+BUTTON_ACTION_CONFIRM = "showcase:confirm"
+BUTTON_ACTION_DOCS = "showcase:docs"
+BUTTON_TIMEOUT_SECONDS = 120.0
 
 
 class PluginEnabledFilter(filter.CustomFilter):
@@ -427,6 +432,32 @@ class ShowcasePlugin(Star):
             ),
         ]
         yield event.chain_result(chain)
+
+    @showcase_group.command("button")
+    async def showcase_button(self, event: AstrMessageEvent) -> None:
+        """发送一排交互按钮，演示 ActionRow / Button（需 AstrBot >= 4.29.4）。"""
+        yield event.chain_result(
+            [
+                Plain("点按钮比打字快："),
+                ActionRow(
+                    buttons=[
+                        Button(
+                            id=BUTTON_ACTION_CONFIRM,
+                            label="确认",
+                            action=Button.CallbackAction(data={"demo": True}),
+                            style=Button.Style.PRIMARY,
+                        ),
+                        Button(
+                            id=BUTTON_ACTION_DOCS,
+                            label="文档",
+                            action=Button.UrlAction(url="https://docs.astrbot.app"),
+                        ),
+                    ],
+                    action_timeout=BUTTON_TIMEOUT_SECONDS,
+                    fallback_text="当前平台不支持按钮，请直接发送 /showcase hello",
+                ),
+            ]
+        )
 
     @showcase_group.command("state")
     async def showcase_state(self, event: AstrMessageEvent) -> None:
@@ -867,6 +898,29 @@ class ShowcasePlugin(Star):
     async def showcase_admin(self, event: AstrMessageEvent) -> None:
         """仅管理员可用，演示 permission_type 过滤器。"""
         yield event.plain_result("你是管理员，这条指令只有管理员能触发。")
+
+    # ------------------------------------------------------------------
+    # 交互按钮回调（AstrBot >= 4.29.4）
+    # ------------------------------------------------------------------
+
+    @filter.button_action(BUTTON_ACTION_CONFIRM)
+    async def showcase_button_confirm(self, event: AstrMessageEvent) -> None:
+        """只处理 `showcase:confirm` 这个按钮的点击。
+
+        注意两点：
+        - 按钮点击是**独立事件**，不会触发 `/showcase` 指令，也不会走唤醒前缀判断；
+        - 过滤器已经保证 `get_button_interaction()` 非空，这里仍然判空是为了演示用法。
+        """
+        interaction = event.get_button_interaction()
+        if interaction is None:
+            yield event.plain_result("没有收到按钮回调数据。")
+            return
+        yield event.plain_result(
+            f"收到按钮回调：action_id={interaction.action_id}\n"
+            f"data={interaction.data}\n"
+            f"来源消息={interaction.source_message_id or '（平台未提供）'}\n"
+            "按钮点完仍留在原消息里；同一排按钮的有效期由 action_timeout 决定。"
+        )
 
     @filter.command("showcase-platform")
     @filter.platform_adapter_type(filter.PlatformAdapterType.ALL)
