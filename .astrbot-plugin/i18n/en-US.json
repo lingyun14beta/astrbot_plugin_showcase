@@ -21,6 +21,12 @@
         "Info",
         "Warning",
         "Error"
+      ],
+      "subtitles": [
+        "Everything, for debugging",
+        "Default level",
+        "Warnings and errors only",
+        "Errors only"
       ]
     },
     "cooldown_seconds": {
@@ -92,7 +98,8 @@
       "debug_dump": {
         "description": "Internal debug dump",
         "hint": "Demonstrates the invisible key: hidden in the WebUI but still kept in the config file; enabling it adds one more line to /showcase config."
-      }
+      },
+      "hint": "Demonstrates collapsed: from the 4.30 line (master) this group starts collapsed; 4.29.4 and older ignore the key and expand it."
     },
     "rules": {
       "description": "Message rules",
@@ -150,6 +157,14 @@
     "inject_context": {
       "description": "Inject temporary context",
       "hint": "When on, on_llm_request appends one temporary context part (time / session / platform) to every request, demonstrating extra_user_content_parts + mark_as_temp (not stored in history, does not break the cache)."
+    },
+    "demo_umo": {
+      "description": "Demo: pick a session source",
+      "hint": "Demonstrates _special: umo — from 4.29.4 the config page opens a session picker and stores the full UMO string. This plugin only echoes it; requires WebUI >= 4.29.4, otherwise it degrades to a text box."
+    },
+    "demo_sender": {
+      "description": "Demo: pick users",
+      "hint": "Demonstrates _special: sender_id — from 4.29.4 the config page opens a user picker and stores a list of user IDs. This plugin only echoes it; requires WebUI >= 4.29.4, otherwise it degrades to a plain list editor."
     }
   },
   "pages": {

@@ -4,7 +4,7 @@ name: astrbot_plugin_showcase # 插件唯一识别名；与 author 一起组成 
 display_name: AstrBot Showcase # WebUI / 插件市场展示名；可被 .astrbot-plugin/i18n 下的 metadata.display_name 覆盖
 desc: AstrBot 插件能力全景示例：配置 Schema、事件钩子、国际化、WebUI Page、LLM 工具与持久化存储。
 short_desc: 一个插件看懂 AstrBot 插件能做什么 # 插件市场卡片用的一句话简介；缺省时回退显示 desc
-version: v1.3.0 # 版本号，格式 v1.1.1 或 v1.1（与 CHANGELOG.md 最新一节的标题一致）
+version: v1.4.0 # 版本号，格式 v1.1.1 或 v1.1（与 CHANGELOG.md 最新一节的标题一致）
 author: lingyun14beta
 repo: https://github.com/lingyun14beta/astrbot_plugin_showcase # 插件仓库地址；缺失时 AstrBot 无法检查更新
 # 【市场侧字段】仅插件市场（cloud.astrbot.app）读取，AstrBot 本体不解析——详见 README「已知边界」。

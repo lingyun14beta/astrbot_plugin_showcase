@@ -6,6 +6,27 @@
 >
 > 约定：发版时让 `metadata.yaml` 的 `version` 与本文档最新一节的标题一致。
 
+## v1.4.0
+
+把 4.29 新增的「配置页能力」也补齐：样式按钮、`subtitles`、`_special: umo` / `sender_id`、`collapsed`。
+
+### 新增
+
+- **四种按钮样式**：`/showcase button` 改成两排——第一排 `default` / `primary` / `success` / `danger` 各一个
+  （共用 `@filter.button_action()` 通配处理器，按 `showcase:style:` 前缀过滤），第二排是原来的「确认 / 文档」
+- **`subtitles`**（WebUI 4.29.1+）：`log_level` 的四个下拉选项各带一句副标题
+- **`_special: umo`**（4.29.4+）：`demo_umo`，配置页弹「选择会话来源」，保存完整 UMO 字符串
+- **`_special: sender_id`**（4.29.4+）：`demo_sender`，配置页弹「选择用户」，保存用户 ID 列表
+- **`collapsed: true`**（4.30 线，PR #11067）：`advanced` 分组默认收起；4.29.4 上会被忽略
+- `/showcase config` 回显这三个新字段（`demo_umo` / `demo_sender` / `advanced.collapsed`），摘要从 18 行变成 21 行
+- 文档：按钮小节补「四种样式 × 各平台映射」表、通配处理器与 ID 唯一性说明；配置表、4.29 能力表同步
+
+### 说明
+
+- 新增的三个 Schema 能力都是**只演示、不参与逻辑**，值只在 `/showcase config` 回显
+- `collapsed` 属于未发版的 4.30 线，写进 Schema 不会影响 4.29.4 的渲染（该键被忽略）
+- 版本下限仍是 `>=4.29.4`（交互按钮），`dev` 分支继续维持 `>=4.27.3`
+
 ## v1.3.0
 
 新增「交互按钮」演示（`feat/buttons` 分支）：`/showcase button` 发一排按钮，`@filter.button_action` 收点击。
